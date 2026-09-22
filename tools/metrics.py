@@ -11,8 +11,12 @@
                < 1 才代表这套架构在纯 CPU 上**跑得动**。> 1 时无论算法多好，
                墙钟都会单调落后，字幕延迟无上界——这正是"停滞版本"的病根。
 
-  latency    = finish_wall - audio_end
-               观众体验到的延迟。cpu_ratio < 1 时它退化成纯算法延迟。
+  p50/p95/worst = 音节第一次出现在屏幕上的延迟（口径见 app/events.py::latency_views）
+  first_p95     = 句子开口到屏幕上有字
+  final_p95     = 说完最后一个字到文本不再变化（定稿延迟）
+
+  只报最后一个事件的延迟会把流式增量架构算得比实际差很多（M2 实测：错口径 p95 3.26 秒，
+  正确口径 0.66 秒），所以延迟一律由 app/events.py::latency_views 统一计算，台架与报告共用。
 """
 
 import argparse
@@ -21,6 +25,10 @@ import statistics
 import sys
 import unicodedata
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.events import latency_views, percentile  # noqa: E402
 
 # 计算字错率时去掉的字符：空白与标点。
 # 注意不要去掉「ー」（长音符）和「っ」（促音），它们在日语里是实义字符。
@@ -89,38 +97,13 @@ def final_transcript(events):
     return " ".join(row.get("text", "").strip() for row in ordered if row.get("text", "").strip())
 
 
-def percentile(values, q):
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = (len(ordered) - 1) * q
-    low = int(position)
-    high = min(low + 1, len(ordered) - 1)
-    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
-
-
-def latency_views(events):
-    """从原始字段重算三种延迟口径。
-
-    只从 audio_start/audio_end/finish_wall 推导，因此对任何版本的 JSONL 都成立，
-    不依赖写入方对 "latency" 的定义。
-    """
-    usable = [row for row in events if row.get("text")]
-    mean_latency = [
-        row["finish_wall"] - (row["audio_start"] + row["audio_end"]) / 2.0 for row in usable
-    ]
-    worst_latency = [row["finish_wall"] - row["audio_start"] for row in usable]
-    return mean_latency, worst_latency
-
-
 def analyze(path, reference=None):
     header, events = load(path)
-    mean_latency, worst_latency = latency_views(events)
+    views = latency_views(events)
     result = {
         "run": path.name,
         "pipeline": header.get("pipeline", "?"),
+        "engine": header.get("engine", "whisper"),
         "model": header.get("model", "?"),
         "chunk": header.get("chunk_seconds"),
         "min_speech": header.get("min_speech"),
@@ -129,11 +112,13 @@ def analyze(path, reference=None):
         "segments": len({row.get("segment_id") for row in events}),
         "cpu_ratio": header.get("cpu_ratio"),
         "e2e_ratio": header.get("e2e_ratio"),
-        # 头条指标：段内语音的平均延迟
-        "p50": percentile(mean_latency, 0.50),
-        "p95": percentile(mean_latency, 0.95),
-        # 最坏口径：该段最早音节等了多少秒。固定分块下这个数≈块长+调用成本。
-        "worst": max(worst_latency) if worst_latency else 0.0,
+        # 头条指标：音节第一次出现在屏幕上的平均延迟
+        "p50": percentile(views["mean"], 0.50),
+        "p95": percentile(views["mean"], 0.95),
+        "worst": max(views["worst"]) if views["worst"] else 0.0,
+        # 定稿延迟：说完最后一个字到文本不再变化
+        "final_p95": percentile(views["final_stale"], 0.95),
+        "first_p95": percentile(views["first_show"], 0.95),
         "svc_mean": statistics.fmean([row["service_seconds"] for row in events]) if events else 0.0,
         "transcript": final_transcript(events),
     }
@@ -154,9 +139,9 @@ def main():
 
     reports = [analyze(path, reference) for path in args.runs]
 
-    columns = ["run", "pipeline", "model", "chunk", "min_speech", "calls", "gated",
-               "segments", "cpu_ratio", "e2e_ratio", "svc_mean", "p50", "p95", "worst", "cer"]
-    widths = {"run": 28}
+    columns = ["run", "pipeline", "engine", "model", "chunk", "min_speech", "calls", "gated",
+               "segments", "cpu_ratio", "first_p95", "p50", "p95", "worst", "final_p95", "cer"]
+    widths = {"run": 26, "pipeline": 15, "engine": 10, "model": 14}
     print(" | ".join(column.ljust(widths.get(column, len(column))) for column in columns))
     for report in reports:
         cells = []
@@ -172,7 +157,8 @@ def main():
         print(" | ".join(cells))
 
     print()
-    print("p50/p95/worst 单位秒，基于段内平均延迟与最早音节延迟（见 app/__init__.py 的口径说明）。")
+    print("单位秒。first_p95=句子开口到屏幕有字；p50/p95/worst=音节首次出现的延迟；"
+          "final_p95=说完到文本不再变化。口径说明见 latency_views()。")
 
     for report in reports:
         print()

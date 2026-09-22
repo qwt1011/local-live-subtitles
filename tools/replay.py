@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from faster_whisper.audio import decode_audio  # noqa: E402
 
 from app.asr.faster_whisper_engine import WhisperEngine  # noqa: E402
+from app.events import latency_views, percentile  # noqa: E402
 from app.pipelines.fixed_chunk import FixedChunkPipeline  # noqa: E402
 
 SAMPLE_RATE = 16000
@@ -68,6 +69,17 @@ def build_pipeline(args, engine):
             chunk_seconds=args.chunk,
             language=args.language,
             min_speech=args.min_speech,
+        )
+    if args.pipeline == "open_utterance":
+        from app.pipelines.open_utterance import OpenUtterancePipeline
+        return OpenUtterancePipeline(
+            engine,
+            language=args.language,
+            min_speech=args.min_speech,
+            min_silence=args.min_silence,
+            partial_step=args.partial_step,
+            max_utterance=args.max_utterance,
+            call_timeout=args.call_timeout,
         )
     raise SystemExit(f"unknown pipeline: {args.pipeline}")
 
@@ -121,21 +133,8 @@ def replay(pipeline, pcm, step, verbose=False):
     return events, duration, total_service, wall
 
 
-def percentile(values, q):
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = (len(ordered) - 1) * q
-    low = int(position)
-    high = min(low + 1, len(ordered) - 1)
-    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
-
-
 def summarize(args, pipeline, events, duration, total_service, final_wall):
-    latencies = [event.latency_mean for event in events]
-    worst = [event.latency_worst for event in events]
+    views = latency_views([event.to_dict() for event in events])
     return {
         "type": "summary",
         "pipeline": args.pipeline,
@@ -150,19 +149,29 @@ def summarize(args, pipeline, events, duration, total_service, final_wall):
         "events": len(events),
         "calls": pipeline.stats.get("calls"),
         "gated_skips": pipeline.stats.get("skipped"),
+        "partials": pipeline.stats.get("partials"),
+        "finals": pipeline.stats.get("finals"),
+        "forced_cuts": pipeline.stats.get("forced_cuts"),
+        "timeouts": pipeline.stats.get("timeouts"),
+        "min_silence": args.min_silence,
+        "partial_step": args.partial_step,
+        "max_utterance": args.max_utterance,
         "total_service_seconds": round(total_service, 3),
         "final_wall_seconds": round(final_wall, 3),
         # cpu_ratio < 1 才代表 CPU 跟得上；> 1 代表无论算法多好，墙钟必然单调落后。
         "cpu_ratio": round(total_service / duration, 3),
         "e2e_ratio": round(final_wall / duration, 3),
-        "latency_p50": round(percentile(latencies, 0.50), 3),
-        "latency_p95": round(percentile(latencies, 0.95), 3),
-        "latency_max": round(max(latencies), 3) if latencies else 0.0,
-        "latency_worst_max": round(max(worst), 3) if worst else 0.0,
+        # 延迟口径统一由 app/events.py::latency_views 提供，不要在这里另算一套。
+        "first_show_p95": round(percentile(views["first_show"], 0.95), 3),
+        "latency_p50": round(percentile(views["mean"], 0.50), 3),
+        "latency_p95": round(percentile(views["mean"], 0.95), 3),
+        "latency_worst_max": round(max(views["worst"]), 3) if views["worst"] else 0.0,
+        "final_p95": round(percentile(views["final_stale"], 0.95), 3),
     }
 
 
-MEDIAN_KEYS = ("cpu_ratio", "e2e_ratio", "latency_p50", "latency_p95", "latency_worst_max")
+MEDIAN_KEYS = ("cpu_ratio", "e2e_ratio", "first_show_p95", "latency_p50", "latency_p95",
+               "latency_worst_max", "final_p95")
 
 
 def median_summary(summaries):
@@ -178,6 +187,9 @@ def median_summary(summaries):
     result["calls"] = summaries[0]["calls"]
     result["gated_skips"] = summaries[0]["gated_skips"]
     result["events"] = summaries[0]["events"]
+    result["partials"] = summaries[0].get("partials")
+    result["finals"] = summaries[0].get("finals")
+    result["timeouts"] = summaries[0].get("timeouts")
     return result
 
 
@@ -192,6 +204,14 @@ def main():
     parser.add_argument("--language", default="ja")
     parser.add_argument("--chunk", type=float, default=2.0, help="固定分块流水线的块长度")
     parser.add_argument("--min-speech", type=float, default=0.0, help="VAD 语音时长门控阈值")
+    parser.add_argument("--min-silence", type=float, default=0.35,
+                        help="open_utterance：判定一句话结束所需的静音长度")
+    parser.add_argument("--partial-step", type=float, default=1.0,
+                        help="open_utterance：开放段重解码的步长")
+    parser.add_argument("--max-utterance", type=float, default=10.0,
+                        help="open_utterance：超长句强制切分阈值（限制单次成本上界）")
+    parser.add_argument("--call-timeout", type=float, default=None,
+                        help="单次识别的硬时间预算（秒），超时则丢弃该事件而不是卡死")
     parser.add_argument("--step", type=float, default=0.1, help="音频到达的仿真步长（秒）")
     parser.add_argument("--limit", type=float, default=None, help="只回放前 N 秒")
     parser.add_argument("--repeat", type=int, default=1, help="重复次数，取中位数（单次噪声很大）")

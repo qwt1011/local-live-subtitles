@@ -60,3 +60,67 @@ class SubtitleEvent:
         if self.detail:
             row["detail"] = self.detail
         return row
+
+
+def latency_views(rows, samples=20):
+    """按"某个音节第一次出现在屏幕上的延迟"计算延迟。
+
+    这是唯一在**固定分块**和**流式增量**之间可比的口径，台架和报告都必须用它，
+    否则两边的数字会各说各话。
+
+    - 固定分块：每个 segment 只有一个事件，覆盖 [a, b]。区间内任意 t 的延迟都是
+      `finish_wall - t`，于是均值退化为 `finish_wall - 中点`、最坏为 `finish_wall - a`。
+    - 流式增量：一个 segment 有多个 partial。靠前的音节被较早的 partial 显示，
+      靠后的音节约到最后一个事件才显示。必须逐点取"第一个覆盖到 t 的事件"的
+      finish_wall，而不是拿最后那个事件去惩罚整句。
+
+    不做这个区分会把流式流水线算得比实际差得多：M2 用最后事件算 p95 是 3.26 秒，
+    用正确口径是 0.66 秒。
+
+    `rows` 是 `SubtitleEvent.to_dict()` 的结果（或同结构 dict）。
+    """
+    per_segment = {}
+    for row in rows:
+        per_segment.setdefault(row.get("segment_id", 0), []).append(row)
+
+    means, worsts, final_stale, first_show = [], [], [], []
+
+    for rows_in_segment in per_segment.values():
+        ordered = sorted(rows_in_segment, key=lambda item: item.get("revision", 0))
+        if not any(row.get("text") for row in ordered):
+            continue  # 门控/超时产生的事件不参与延迟统计
+
+        start = min(row["audio_start"] for row in ordered)
+        end = max(row["audio_end"] for row in ordered)
+        finishes = [row["finish_wall"] for row in ordered]
+
+        points = 1 if end <= start else samples
+        local = []
+        for index in range(points):
+            t = start if points == 1 else start + (end - start) * index / (points - 1)
+            candidates = [row["finish_wall"] for row in ordered if row["audio_end"] >= t - 1e-9]
+            local.append((min(candidates) if candidates else min(finishes)) - t)
+        means.append(sum(local) / len(local))
+        worsts.append(max(local))
+
+        # 说完最后一个字 → 屏幕上的文本不再变化（定稿延迟）
+        finals = [row for row in ordered if row.get("is_final")]
+        if finals:
+            final_stale.append(min(row["finish_wall"] for row in finals) - end)
+        # 句子开口 → 屏幕上有字（首字延迟）
+        first_show.append(min(finishes) - start)
+
+    return {"mean": means, "worst": worsts,
+            "final_stale": final_stale, "first_show": first_show}
+
+
+def percentile(values, q):
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * q
+    low = int(position)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)

@@ -122,3 +122,57 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
 2. 在 `local_service.py` 与未来的流式内核里加每次调用的硬超时与丢弃策略。
 3. M2：VAD 门控 + 开放段重解码 + LocalAgreement-2 增量提交 + 草稿/定稿两态。
 
+## 换引擎判定实验 + M2（本次会话续）
+
+### 判定实验：结论是换引擎
+
+把 SenseVoice（sherpa-onnx）接到同一个 `Pipeline` 接口，**台架一行没改**（这正是 M1 的目的）。
+完整数据见 `BENCHMARK_RESULTS.md` 第 10 节。
+
+- 单次调用成本：SenseVoice 1 秒块 **0.038 秒**，base 是 **1.10 秒**，差 **29 倍**；
+  而且 SenseVoice 的成本**随音频长度走**（30 秒整段 1.78 秒），没有 Whisper"补齐到 30 秒"的固定成本。
+- 质量反而更好：SenseVoice 整段字错率 **0.022**（几乎与伪参考逐字相同），base 是 0.121。
+- 因此第 5 节那两道把 base 逼死的约束自动松开，1.5 秒目标在改引擎后就已达成。
+- 环境坑（已记录并自动处理）：GitHub Releases 直连约 2 KB/s（158 MB 要 20 小时以上），
+  `gh-proxy.com` 776 KB/s、`hf-mirror.com` 669 KB/s、ModelScope 4.1 MB/s，已写进 `tools/setup_models.py`；
+  PyPI 的 `sherpa-onnx-core` 只有 `py3-none-*` 标签（Python 3.13 可用），但 pip 联网解析会卡死，
+  改用离线 wheel + `--no-index --find-links` 安装。
+
+### M2 完成：VAD 驱动的"开放段重解码"
+
+`app/pipelines/open_utterance.py`。句子边界由 VAD 决定（永不切在词中间），
+开放期间每 `partial_step` 秒重解码整句出 partial，检测到静音则解码整句出 final。
+
+**没有用 LocalAgreement-2**：它需要文本前缀与音频时间的对应关系才能裁剪缓冲区，
+而 SenseVoice 既没有 `initial_prompt` 也没有词级时间戳；好在它单次成本只有约 0.05 秒/音频秒，
+重解码整句本来就负担得起。
+
+**达成情况（同一段 30 秒 ASMR，中位数，step=0.5s / sil=0.35s）：**
+
+| 指标 | 目标 | 实测 |
+|---|---|---|
+| P95 延迟 | ≤ 1.5 秒 | **0.677 秒** |
+| 最坏延迟 | — | 1.093 秒 |
+| 首字延迟 P95 | — | 0.783 秒 |
+| 定稿延迟 P95 | — | 1.076 秒 |
+| 原文质量 | 不低于 base 整段（0.121） | **0.011**（好约 10 倍） |
+| cpu_ratio | < 1 | 0.404（余 60% 给翻译） |
+
+对照：停滞原型是 p50 19.7 秒 / 最坏 27.3 秒 / cpu_ratio 1.44 / 字错率 0.462。
+
+- 修正了一个会把流式架构算错 5 倍的延迟口径问题：延迟必须按"音节第一次出现在屏幕上的延迟"算，
+  不能拿最后一个事件的墙钟去惩罚整句。口径统一放在 `app/events.py::latency_views`，台架与报告共用，
+  已验证两边数字完全一致；对固定分块会自动退化成原算法。
+- 同引擎对照确认换引擎是必需的：M2 + Whisper base 能把质量从 0.341 提到 0.143，
+  但 p95 仍是 3.2 秒——救得了质量，救不了延迟。
+
+## 下一步（更新）
+
+1. **M3**：把流式内核包成 WebSocket 服务（PCM 流进、partial/final 事件流出），替换
+   `local_service.py` 的"每块一个 HTTP 请求"；扩展端改 AudioWorklet 取 PCM。
+2. **M4**：partial/final 两态渲染、全屏挂载（当前 overlay 挂在 `documentElement`，全屏会消失）、
+   设置持久化。
+3. **M5**：改用 `opus-mt-ja-zh` CT2 直连翻译（已放弃 NLLB 与 Argos ja→en→zh 双重中转），
+   独立 worker 不阻塞识别。
+4. **M6**：端到端浏览器验证。
+
