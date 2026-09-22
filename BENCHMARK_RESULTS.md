@@ -492,24 +492,58 @@ RuntimeError: NOT_FOUND: "C:\text\实验\asmr_transcription\models\...\sentencep
 `app/translate/nllb_ct2.py` 改为从字节加载（`load_from_serialized_proto`），彻底绕开路径编码问题。
 注意 `ctranslate2` 自身没有这个问题（它能正常读写中文路径），只有 sentencepiece 有。
 
-### 12.6 当前状态与下一步
+### 12.6 结论：NLLB + CTranslate2 4.8.1 在本机不可用
+
+本地转换**也没有救回来**。用我们自己转换的 NLLB 做最后一组对照：
+
+| 输入 | 请求的目标语言 | 实际输出 |
+|---|---|---|
+| 英文 | `zho_Hans` | `I was really really really very surprised really really truly …` |
+| 英文 | `fra_Latn` | `I was really very, i really really really surprised …` |
+| 英文 | `deu_Latn` | `, I was so really very surprised really really really …` |
+| 英文 | `jpn_Jpan` | `I was really really really very surprised …` |
+| 英文 | `rus_Cyrl` | `I was really really really very surprised …` |
+
+**换任何目标语言，输出都是同一段英文回声**——`target_prefix` 被完全忽略。
+而 `ctranslate2 4.8.1` 的 `translate_batch` 签名里 `target_prefix` 是**合法参数**
+（已核验），所以不是参数名写错。
+
+再叠加前面的证据：
+
+- 给日文源加 `jpn_Jpan`，模型吐出的第一个 token 是 `kor_Hang`（韩语）；
+- 遍历全部 **202 个语言标记**做目标前缀，没有一个能产出中文；
+- 词表对齐（`zho_Hans`=256200、`jpn_Jpan`=256079）与 sha256 都正确；
+- **同一个 CT2 转换出来的 Marian 模型工作正常**（ja→en 输出通顺英文）。
+
+结论：这是 **NLLB 转换与 CT2 4.8.1 之间的不兼容**，不是下载损坏、不是参数用错、
+也不是词表排列问题。修不了，只能换路线。
+
+### 12.7 当前状态与可选路线
 
 - **未完成**：可用的 ja→zh 翻译。
-- **已排除**：
-  1. 预转换的 NLLB CT2 仓库（两份独立转换，sha256 校验一致，都是坏的）；
-  2. 用重映射词表修补现成模型（偏移确认存在，但修不了）；
-  3. ja→en→zh 双重中转（质量不可用）。
-- **正在做**：下载 `facebook/nllb-200-distilled-600M` 的 fp32 权重（2.35GB），
-  用本地 CT2 4.8.1 转换（Marian 已证明这条路能产出词表一致的模型）。
-  下载走 `tools/setup_models.py`，它支持**断点续传**——这一步是必需的，
-  因为 `huggingface_hub` 自带的 xet 传输在这个网络下走了一小时、到 86% 就报
-  `CAS Client Error: Format error: I/O error`，且没有可用的续传残留。
-- **代码已就绪**：`app/translate/nllb_ct2.py` + 服务端独立翻译线程（翻译结果作为同
-  `segment_id` 的更高 `revision` 回传，渲染端已支持，并有单元测试覆盖）。
-  换模型只需要改 catalog 里的目录名。
+- **已排除**（都有实测依据）：
+  1. `opus-mt-ja-zh` —— 模型不存在；
+  2. 两份预转换 NLLB CT2 仓库 —— 退化解码，sha256 校验一致，不是下载问题；
+  3. 本地转换 NLLB —— 同样失效，`target_prefix` 被忽略；
+  4. 重映射词表修补 —— 偏移确认存在但修不了；
+  5. ja→en→zh 双重中转 —— 质量不可用。
+- **已就绪**：翻译层的全部代码（`app/translate/`、服务端独立翻译线程、
+  译文按 `segment_id` + 更高 `revision` 回传、渲染端与单元测试都已覆盖）。
+  换模型只需要改 `app/models_catalog.py` 里的目录名，**不需要再动管线**。
+
+**剩下可尝试的路线**（按我的倾向排序）：
+
+1. **小参数量指令模型**（如 Qwen2.5-1.5B-Instruct 转 CT2 int8，约 1.5GB）：
+   用 prompt 做 ja→zh 翻译。这条路的好处是**不依赖任何语言标记机制**，
+   而我们刚刚证明了语言标记机制正是坏掉的那一环；坏处是要自己写生成循环与提示词。
+2. **降级 CTranslate2**（例如 4.5.x）再试 NLLB：如果这是版本回归，钉住版本就能解决。
+   风险是会牵动 `faster-whisper 1.2.1` 的依赖。
+3. **先只做原文**：识别链路（M0–M4）已经完全达标，翻译作为独立后续任务。
+
+**关于磁盘**：`models/` 目录现在约 4GB，其中 NLLB 相关（fp32 2.35GB + 三份 CT2 int8）
+在这条路线走通之前都是无效占用，可以删。该目录已在 `.gitignore` 中。
 
 **延迟预算**：识别端 `cpu_ratio` 只有 0.386，翻译在独立线程里只对定稿触发，
-不占原文延迟。Argos（Marian 量级）实测 78ms/句可作为下限参考；
-NLLB-600M int8 的量级需要转换完成后实测。
+不占原文延迟。Argos（Marian 量级）实测 78ms/句可作为量级参考。
 
 

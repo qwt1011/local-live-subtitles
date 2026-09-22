@@ -258,3 +258,49 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
    翻译结果作为同一 segment 的更高 `revision` 回传，渲染端已经支持这条路径
    （`tests/test_extension_logic.js` 里有一条专门测它）。
 
+## M5 攻关记录：翻译模型这条线暂时没走通
+
+详细数据见 `BENCHMARK_RESULTS.md` 第 12 节。这里只记结论和教训。
+
+**代码是完整的**：`app/translate/`（协议 + NLLB/CT2 实现）、服务端独立翻译线程、
+译文按 `segment_id` + 更高 `revision` 回传（原文先显示、译文稍后补上），
+渲染端与单元测试都已覆盖。**换模型只需改 catalog 里的目录名，不必再动管线。**
+
+**但模型这条线被卡住了**，逐条排除如下：
+
+| 路线 | 结果 |
+|---|---|
+| `Helsinki-NLP/opus-mt-ja-zh` | **模型不存在**（只有反向的 zh-ja），也没有 `opus-mt-mul-zh` |
+| 两份预转换 NLLB CT2 int8 仓库 | 退化解码；逐文件 sha256 校验一致，**不是下载损坏** |
+| 本地转换 NLLB（自己下的 2.35GB fp32） | 同样失效：`target_prefix` 被完全忽略 |
+| 重映射词表修补现成模型 | 偏移确认存在（`sv[i]==spm[i-1]` 19996/19996），但修不了 |
+| ja→en→zh 双重中转 | 质量不可用（英文自身破碎并复读） |
+
+**决定性对照**：同一个 CT2 4.8.1 转换出来的 **Marian 模型工作正常**，
+所以 CT2 本体和调用方式都没问题——是 NLLB 转换与 CT2 4.8.1 之间的不兼容。
+最硬的证据：换任何目标语言（zh/fr/de/ja/ru），模型都输出同一段英文回声。
+
+**这一轮我自己犯的两个错，都值得记住**：
+
+1. **推荐 `opus-mt-ja-zh` 之前没有先确认它存在**。这和当年 Argos `ja→en` 下载失败是
+   同一类错误——先假设、再动手。现在 catalog 里每一项都有 `status` 字段记录实测结论。
+2. 一开始把两份预转换模型判成"下载损坏"，实际 sha256 完全一致。
+   **"换个独立来源做对照"才是定位这类问题的正确手法**，而不是反复重下。
+
+**顺带修好的两件事**：
+
+- `tools/setup_models.py` 现在支持**断点续传**。这是必需的：`huggingface_hub` 的 xet
+  传输在这个网络下走了一小时、到 86% 报 `CAS Client Error`，且没有可用残留；
+  换用自己的下载器后，2.35GB 中途断了两次都成功续上。
+- 解码必须加 `repetition_penalty` / `no_repeat_ngram_size`：不加会复读到上限才停
+  （单句 1.65s→0.85s，输出从不可用变正常）。这和 M0 在 Whisper 上发现的
+  temperature 回退是同一类问题。
+
+**环境坑**：sentencepiece 的 C++ 层在 Windows 上打不开非 ASCII 路径
+（本项目在 `C:\text\实验\` 下），绝对路径报 `NOT_FOUND`；已改为从字节加载。
+
+**剩余可试的路线**（见 `BENCHMARK_RESULTS.md` 12.7）：小参数量指令模型（不依赖语言标记机制，
+而语言标记正是坏掉的那环）／降级 CTranslate2 再试 NLLB／先只做原文。
+
+**进度：M0 ✓ M1 ✓ 换引擎判定 ✓ M2 ✓ M3 ✓ M4 ✓（待真机验收）M5 代码就绪、模型未走通 M6 待做。**
+
