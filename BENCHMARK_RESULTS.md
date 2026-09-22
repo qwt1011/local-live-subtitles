@@ -437,6 +437,16 @@ $sv = "--pipeline","open_utterance","--engine","sensevoice","--model","sensevoic
 说明 `shared_vocabulary` 里的语言标记顺序和 `model.bin` 的 embedding 行**错位**了。
 这类错误不会报错，只会安静地产出垃圾，所以必须靠"换一份转换做对照"才能定位。
 
+**试过但没成功的补救**：既然怀疑是错位，就想用"重映射词表"来绕开 2.4GB 的重下载。
+实测确认了 `shared_vocabulary[i] == spm.id_to_piece(i-1)` 在 4..20000 范围内
+**19996/19996 全部成立**，也就是说词表确实整体偏移了一个位置。
+但按这个映射重排输入/输出之后，输出换成了另一种垃圾（`surprised surprised سوپاس …`），
+说明**偏移只是表象，权重与词表的不一致更复杂**，不是简单换个索引顺序能修的。
+结论：只能重新转换，不能修补现成文件。
+
+（顺带一提：不做任何重映射时，英文输入会产出 `I was really really really very surprised …`
+这样的半通顺文本再复读——模型本体是活的，只是条件没对上。）
+
 ### 12.3 顺带发现：解码必须加防重复参数
 
 本地转换的 Marian 在默认参数下也会**复读到 max_decoding_length 才停**（单句 1.7 秒、
@@ -485,9 +495,15 @@ RuntimeError: NOT_FOUND: "C:\text\实验\asmr_transcription\models\...\sentencep
 ### 12.6 当前状态与下一步
 
 - **未完成**：可用的 ja→zh 翻译。
-- **已排除**：预转换的 NLLB CT2 仓库（两份独立转换都坏）、ja→en→zh 双重中转（质量不可用）。
-- **正在做**：下载 `facebook/nllb-200-distilled-600M` 的 fp32 权重（约 2.4GB），
+- **已排除**：
+  1. 预转换的 NLLB CT2 仓库（两份独立转换，sha256 校验一致，都是坏的）；
+  2. 用重映射词表修补现成模型（偏移确认存在，但修不了）；
+  3. ja→en→zh 双重中转（质量不可用）。
+- **正在做**：下载 `facebook/nllb-200-distilled-600M` 的 fp32 权重（2.35GB），
   用本地 CT2 4.8.1 转换（Marian 已证明这条路能产出词表一致的模型）。
+  下载走 `tools/setup_models.py`，它支持**断点续传**——这一步是必需的，
+  因为 `huggingface_hub` 自带的 xet 传输在这个网络下走了一小时、到 86% 就报
+  `CAS Client Error: Format error: I/O error`，且没有可用的续传残留。
 - **代码已就绪**：`app/translate/nllb_ct2.py` + 服务端独立翻译线程（翻译结果作为同
   `segment_id` 的更高 `revision` 回传，渲染端已支持，并有单元测试覆盖）。
   换模型只需要改 catalog 里的目录名。

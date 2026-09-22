@@ -27,6 +27,26 @@ HF_MIRRORS = [
 NLLB_LANGS = {"ja": "jpn_Jpan", "zh": "zho_Hans", "en": "eng_Latn"}
 
 CATALOG = {
+    "nllb-ja-zh-hf": {
+        "kind": "hf",
+        "repo": "facebook/nllb-200-distilled-600M",
+        "dir": "nllb-200-distilled-600M-hf",
+        "files": [
+            "sentencepiece.bpe.model",
+            "config.json",
+            "generation_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "pytorch_model.bin",
+        ],
+        "required": ["pytorch_model.bin", "sentencepiece.bpe.model"],
+        "languages": "ja -> zh（jpn_Jpan -> zho_Hans）",
+        "note": "NLLB 原始 fp32 权重（约 2.35GB），用于**本地**转成 CT2。"
+                "之所以要自己转：两份现成的 CT2 int8 仓库都实测坏掉了"
+                "（shared_vocabulary 与 model.bin 的 embedding 行错位），"
+                "而本地转换能产出词表一致的模型——已用 Marian 验证过这条路。",
+    },
     "nllb-ja-zh": {
         "kind": "hf",
         "repo": "JustFrederik/nllb-200-distilled-600M-ct2-int8",
