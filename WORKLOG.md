@@ -85,3 +85,40 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
 - 发现此前录音和识别为串行：每个 2 秒录音块必须等待识别及翻译结束后才开始下一段，造成音频空档和额外延迟。
 - 改为流水线处理：上一段上传识别时，下一段立即开始录制。
 - 本地服务响应新增 `processing_seconds`，PowerShell 日志会显示每个音频块的实际处理耗时。
+
+## 停滞期评审 + M0/M1（本次会话）
+
+架构评审结论与完整证据见 `ARCHITECTURE_REVIEW.md`，实测数据见 `BENCHMARK_RESULTS.md`。
+
+- 完成架构评审。核心结论：当前实现本质是"离线文件转写包装成流式"，
+  延迟下限被"块长度 + 每次调用固定开销"锁死；项目停滞的真正原因是没有可复现的离线验证回路。
+- 用 `diag_call_cost.py` 证明每次 `transcribe()` 的固定成本 ≈ 0.9–1.1 秒，**与音频长度几乎无关**
+  （base：2 秒音频 0.91s，10 秒音频 1.01s）。Whisper 的 encoder 永远处理补齐到 30 秒的 mel。
+- 用 `diag_fallback.py` 定位 `WORKLOG` 中"某些块要 13–19 秒"的真正元凶是 **temperature 回退阶梯**
+  （失败时用更高温度重解码整段，最多 7 遍），不是此前猜测的"耳语段落太难"。
+  同一个 3 秒块：默认阶梯 6.59s → `temperature=[0.0]` 2.30s。但直接关掉会让该块从"空文本"变成复读幻觉，
+  因此必须同时用 `repetition_penalty` / `no_repeat_ngram_size` 压制。
+- **M0 完成**：
+  - `git init` + `.gitignore`（排除 14MB 源视频与模型缓存，保留 sample wav 作为台架 fixture）；
+    需要为本目录加 `safe.directory`（目录属主是之前的沙箱账户，与当前用户不同），仓库级身份设为 `asus/asus@localhost`。
+  - `local_service.py` 重写：VAD 语音时长门控、收窄温度阶梯、内存流解码（不再落临时文件）、
+    翻译移出模型锁、修掉 `finally` 中 `segments` 未绑定导致的 `NameError` 掩盖真实异常、启动预热 + `/health` 上报预热状态。
+- **M1 完成**：离线回放台架 `tools/replay.py`（虚拟时钟，音频 1x 到达，计算耗时推进墙钟）
+  + `tools/metrics.py` + `tools/offline_reference.py` + `tools/smoke_service.py` + `tools/diag_translate_cost.py`，
+  以及 `app/` 分层骨架（events / audio.vad / asr 引擎 / pipelines 协议 + 固定分块基线）。
+- **最重要的实测发现**：原型的 `cpu_ratio = 1.44`（识别 30 秒音频要烧 43 秒 CPU），
+  端到端延迟 p50 **19.7 秒**、最坏 **27.3 秒**，且因为没有背压会单调落后、永不恢复。
+  这才是"延迟明显"的量化答案，此前记录里的"至少一秒"严重低估了问题。
+- 台架暴露的两个工程要求：单次 `cpu_ratio` 波动大（0.42–0.60），必须取中位数；
+  一次病态调用耗时 1255 秒且不复现 —— **流水线必须有每次调用的硬时间预算与看门狗**。
+- 修正了 `ARCHITECTURE_REVIEW.md` 第 5 节的推荐：双通道（方案 C）结构正确，
+  但受 `base` 单次成本 1.10s 的结构性限制，**无法兑现"1.5 秒内看到正确文本"**。
+  建议先做"换更低固定成本引擎"（SenseVoice / sherpa-onnx）的低成本判定实验，再决定 M2 建在哪个引擎上。
+
+## 下一步
+
+1. 判定实验：接一个非 Whisper 的流式引擎到 `Pipeline` 接口，用同一条 `replay.py` 命令对比
+   `cpu_ratio` 与字错率，决定 M2 的引擎底座。
+2. 在 `local_service.py` 与未来的流式内核里加每次调用的硬超时与丢弃策略。
+3. M2：VAD 门控 + 开放段重解码 + LocalAgreement-2 增量提交 + 草稿/定稿两态。
+

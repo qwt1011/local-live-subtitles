@@ -19,7 +19,7 @@ argos_packages/
 *.pt
 
 # 运行产物
-*.jsonl
+# 注意：runs/ 下的回放结果（JSONL）值得入库——体积很小（每个约 20KB），
+# 而且是 BENCHMARK_RESULTS.md 里那些数字的唯一证据，重跑一次要几十分钟。
 *.log
-runs/
 .local/
