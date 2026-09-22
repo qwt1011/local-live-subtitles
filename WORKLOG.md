@@ -176,3 +176,39 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
    独立 worker 不阻塞识别。
 4. **M6**：端到端浏览器验证。
 
+## M3 完成：流式服务（PCM over WebSocket）
+
+`app/server.py`，替换原来"每 2 秒一个 HTTP 请求 + 服务端全局锁串行"的做法。
+
+- 协议：客户端先发 `{"type":"start"}`，随后连续发送 16 kHz 单声道 s16le 裸 PCM；
+  服务端回 `{"type":"event", segment_id, revision, text, is_final, ...}`。
+  **客户端不做任何分段决策**（不变式 1）。
+- 线程模型：asyncio 收音频/发事件，一个识别工作线程"取作业→跑识别→投事件"；
+  锁只保护流水线状态，**识别调用在锁外执行**，音频不会被识别阻塞；
+  事件队列满时丢最旧的（不变式 3"永不排队"）。
+- `--log` 把真实会话落成与离线台架**同格式**的 JSONL，可直接用 `tools/metrics.py` 分析。
+  这条统一让"真实浏览器路径"从此刻起也是可量化、可回归的。
+
+**M3 端到端验证（`tools/ws_client_test.py`，按 1.0x 实时速度推流 30 秒音频）：**
+
+| 指标 | 实测 |
+|---|---|
+| 延迟 p50 / p95 | **0.464 / 0.529 秒** |
+| 最坏 | 0.858 秒 |
+| 首字 P95 | 0.728 秒 |
+| 定稿 P95 | 0.825 秒 |
+| cpu_ratio | 0.386 |
+| 字错率 | 0.011 |
+| revision 单调性 | OK（不会回跳） |
+| 事件丢失 | 0 |
+
+进度：**M0 ✓ M1 ✓ 换引擎判定 ✓ M2 ✓ M3 ✓**，剩下 M4（扩展渲染/全屏）、M5（opus-mt 翻译）、M6（浏览器实测）。
+
+## 下一步（最新）
+
+1. **M4**：扩展端改 AudioWorklet 取 PCM + WebSocket；partial/final 两态渲染；
+   修全屏挂载（overlay 现在挂在 `documentElement`，YouTube 全屏时会整个消失）；
+   设置持久化（刷新后 `mode` 会回落）；popup 显示连接状态与实时延迟。
+2. **M5**：`opus-mt-ja-zh` + ctranslate2 直连翻译，独立 worker 不阻塞识别。
+3. **M6**：真实 YouTube 页面端到端验证，回填验收清单。
+

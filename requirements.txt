@@ -4,8 +4,13 @@
 # 安装方式见 tools/setup_models.py 的 docstring（离线 wheel + --find-links）。
 sherpa-onnx>=1.13,<2
 
+# 流式服务的 WebSocket 传输（M3）
+websockets>=15,<18
+
 # 对照/离线精修通道，同时是 tools/offline_reference.py 生成伪参考用的引擎
 faster-whisper>=1.1,<2
 
 # Optional local translation: install separately when needed.
+# 计划改用 opus-mt-ja-zh + ctranslate2 直连（已放弃 Argos ja->en->zh 双重中转）。
+# ctranslate2 已随 faster-whisper 安装。
 # argostranslate>=1.9,<2

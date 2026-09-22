@@ -30,36 +30,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from faster_whisper.audio import decode_audio  # noqa: E402
 
-from app.asr.faster_whisper_engine import WhisperEngine  # noqa: E402
+from app.asr.factory import DEFAULT_MODEL, LEGACY_WHISPER_KWARGS, create_engine  # noqa: E402
 from app.events import latency_views, percentile  # noqa: E402
 from app.pipelines.fixed_chunk import FixedChunkPipeline  # noqa: E402
 
 SAMPLE_RATE = 16000
 
-# 原始原型的识别参数，用来复现"停滞版本"的行为做对照。
-# 与 app/asr/faster_whisper_engine.py 的 DEFAULT_ASR_KWARGS 的差异就是 M0 的参数修复。
-LEGACY_ASR_KWARGS = {
-    "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-    "repetition_penalty": 1.0,
-    "no_repeat_ngram_size": 0,
-    "condition_on_previous_text": True,
-}
-
-
-DEFAULT_MODEL = {"whisper": "base", "sensevoice": "sensevoice-2024"}
-
 
 def build_engine(args, model_name):
-    """按 --engine 构造识别引擎。台架只依赖 transcribe/warm_up/name 三个接口。"""
-    if args.engine == "sensevoice":
-        if args.legacy_params:
-            raise SystemExit("--legacy-params 只对 whisper 有意义")
-        from app.asr.sensevoice_engine import SenseVoiceEngine
-        return SenseVoiceEngine(model_name, num_threads=args.threads, language=args.language)
-    overrides = LEGACY_ASR_KWARGS if args.legacy_params else {}
-    if overrides:
-        print(f"legacy ASR params: {overrides}", flush=True)
-    return WhisperEngine(model_name, **overrides)
+    """引擎构造统一走 app/asr/factory.py，保证台架和服务用的是同一条路径。"""
+    if args.legacy_params:
+        print(f"legacy ASR params: {LEGACY_WHISPER_KWARGS}", flush=True)
+    return create_engine(args.engine, model_name, language=args.language,
+                         threads=args.threads, legacy_params=args.legacy_params,
+                         warm_up=False)
 
 
 def build_pipeline(args, engine):
