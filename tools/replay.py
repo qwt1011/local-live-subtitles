@@ -45,6 +45,22 @@ LEGACY_ASR_KWARGS = {
 }
 
 
+DEFAULT_MODEL = {"whisper": "base", "sensevoice": "sensevoice-2024"}
+
+
+def build_engine(args, model_name):
+    """按 --engine 构造识别引擎。台架只依赖 transcribe/warm_up/name 三个接口。"""
+    if args.engine == "sensevoice":
+        if args.legacy_params:
+            raise SystemExit("--legacy-params 只对 whisper 有意义")
+        from app.asr.sensevoice_engine import SenseVoiceEngine
+        return SenseVoiceEngine(model_name, num_threads=args.threads, language=args.language)
+    overrides = LEGACY_ASR_KWARGS if args.legacy_params else {}
+    if overrides:
+        print(f"legacy ASR params: {overrides}", flush=True)
+    return WhisperEngine(model_name, **overrides)
+
+
 def build_pipeline(args, engine):
     if args.pipeline == "fixed_chunk":
         return FixedChunkPipeline(
@@ -123,6 +139,7 @@ def summarize(args, pipeline, events, duration, total_service, final_wall):
     return {
         "type": "summary",
         "pipeline": args.pipeline,
+        "engine": args.engine,
         "model": args.model,
         "language": args.language,
         "chunk_seconds": args.chunk,
@@ -168,7 +185,10 @@ def main():
     parser = argparse.ArgumentParser(description="虚拟时钟回放台架")
     parser.add_argument("--wav", type=Path, required=True)
     parser.add_argument("--pipeline", default="fixed_chunk")
-    parser.add_argument("--model", default="base", choices=("tiny", "base", "small"))
+    parser.add_argument("--engine", default="whisper", choices=("whisper", "sensevoice"))
+    parser.add_argument("--model", default=None,
+                        help="whisper 用 tiny/base/small；sensevoice 用模型目录名或路径")
+    parser.add_argument("--threads", type=int, default=None, help="sensevoice 线程数")
     parser.add_argument("--language", default="ja")
     parser.add_argument("--chunk", type=float, default=2.0, help="固定分块流水线的块长度")
     parser.add_argument("--min-speech", type=float, default=0.0, help="VAD 语音时长门控阈值")
@@ -187,13 +207,12 @@ def main():
         pcm = pcm[: int(args.limit * SAMPLE_RATE)]
     source_duration = len(pcm) / float(SAMPLE_RATE)
 
-    print(f"wav={args.wav.name} duration={source_duration:.2f}s model={args.model} "
-          f"pipeline={args.pipeline} repeat={args.repeat}", flush=True)
+    model_name = args.model or DEFAULT_MODEL[args.engine]
+    print(f"wav={args.wav.name} duration={source_duration:.2f}s engine={args.engine} "
+          f"model={model_name} pipeline={args.pipeline} repeat={args.repeat}", flush=True)
 
-    overrides = LEGACY_ASR_KWARGS if args.legacy_params else {}
-    if overrides:
-        print(f"legacy ASR params: {overrides}", flush=True)
-    engine = WhisperEngine(args.model, **overrides)
+    engine = build_engine(args, model_name)
+    args.model = model_name
     if not args.no_warmup:
         began = time.perf_counter()
         engine.warm_up(args.language)

@@ -16,6 +16,11 @@
    能进 1.5 秒的配置（tiny + 0.7 秒块）字错率 0.725，文本不可用；文本可用的配置（base + 3 秒块）P95 是 3.23 秒。
    **这是对 `ARCHITECTURE_REVIEW.md` 第 5 节"决策 1 选 C"的修正**——C 的双通道结构仍然正确，但它只能保证"草稿早到"，
    不能保证"正确文本在 1.5 秒内到"。详见第 8 节。
+4. **换引擎判定实验给出明确答案：改用 SenseVoice（sherpa-onnx）。**
+   它没有 Whisper 那个"补齐到 30 秒"的固定成本：单次调用成本在 1 秒块上只有 **0.038 秒**（base 是 1.10 秒），
+   日语质量反而更好（整段字错率 **0.022**，base 整段约 0.31）。
+   **1 秒块下 P95 = 0.67 秒、最坏 1.17 秒、cpu_ratio = 0.038** —— 原定的 1.5 秒目标在改引擎后就已经达成，
+   而且还剩 20 倍 CPU 余量。详见第 10 节。
 
 ---
 
@@ -209,3 +214,92 @@ $py = "C:\text\.venv\Scripts\python.exe"
 # 6) 翻译预算标定
 & $py -u tools\diag_translate_cost.py --repeat 3
 ```
+
+---
+
+## 10. 换引擎判定实验：SenseVoice（结论：换）
+
+### 10.1 为什么怀疑 Whisper 的固定成本
+
+第 4 节已经证明 base 的单次调用成本与音频长度无关（2 秒音频 0.91s，10 秒音频 1.01s），
+原因是 Whisper 的 encoder 永远对**补齐到 30 秒的 mel** 做一次前向。这是结构性的，
+调参绕不过去。所以判定实验要问的是：**有没有一种引擎，成本随音频长度走，而不是每次都付 1 秒。**
+
+### 10.2 接入方式
+
+- 模型：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`（约 158 MB，支持中英日韩粤）
+- 引擎适配：`app/asr/sensevoice_engine.py`（非自回归 CTC，无 30 秒补齐）
+- **台架一行没改**，只是多了一个 `--engine sensevoice`。这正是 M1 建台架的目的：
+  换引擎的判断不再需要重写实验代码。
+
+### 10.3 结果（同一段 30 秒 ASMR，同一套指标，中位数）
+
+| 配置 | 调用数 | cpu_ratio | p50 | p95 | 最坏 | 字错率 |
+|---|---|---|---|---|---|---|
+| **SV 整段 30s**（质量上限） | 1 | 0.058 | 16.78 | 16.78 | 31.78 | **0.022** |
+| **SV + 3.0 秒块** | 8 | 0.039 | 1.68 | 1.74 | 3.24 | 0.066 |
+| **SV + 2.0 秒块** | 11 | 0.039 | 1.16 | 1.18 | 2.18 | 0.099 |
+| **SV + 1.0 秒块** | 16 | 0.038 | 0.62 | **0.67** | **1.17** | 0.176 |
+| **SV + 0.7 秒块** | 21 | 0.044 | 0.43 | **0.50** | **0.86** | 0.198 |
+| base + 3.0 秒块（对照） | 8 | 0.370 | 2.84 | 3.23 | 4.90 | 0.308 |
+| base + 2.0 秒块（对照） | 11 | 0.552 | 2.48 | 2.81 | 3.81 | 0.341 |
+| tiny + 0.7 秒块（对照） | 21 | 0.463 | 1.02 | 1.28 | 1.69 | 0.725 |
+
+### 10.4 三点结论
+
+1. **成本结构完全不同。** SenseVoice 的 1 秒块单次成本约 **0.038 秒**，base 是 **1.10 秒**，差 **29 倍**；
+   而且它的成本**随音频长度变化**（30 秒整段 1.78 秒），不是每次固定付 1 秒。
+   第 5 节那两道把 base 逼死的约束（`cpu_ratio ≈ C/L`、`最坏 ≈ L + C`）在这里自动松开。
+2. **质量反而更好，不是更差。** SenseVoice 整段字错率 **0.022**，几乎与伪参考逐字相同
+   （唯一差别是 `可わい` 对 `可愛い`）。作为对照，Whisper base 的 2 秒块输出是
+   `それじゃミシク 再大だと行きましょうか カラーイオニス 練したもん …違うんが悪くな 待ってきているから`
+   ——`ミシク`/`再大`/`カラーイオニス`/`違うんが`/`待って` 全是错，还夹着幻觉出来的 `はぁぁぁ`。
+   也就是说：**在这段日语耳语 ASMR 上，SenseVoice ≈ Whisper small 整段，而 base 明显不如它。**
+3. **原定目标已经达成。** 1 秒块下 **P95 = 0.67 秒、最坏 1.17 秒**，双双低于 1.5 秒，
+   而且 `cpu_ratio` 只有 **0.038**。这就把问题从"能不能做到 1.5 秒"换成了
+   **"还剩 20 倍 CPU 余量，怎么花在质量上"** —— 这是个好得多的处境。
+
+### 10.5 需要注意的地方
+
+- 字错率随块变短而上升（3 秒块 0.066 → 0.7 秒块 0.198），说明**分块切碎上下文的问题依然存在**，
+  只是 SenseVoice 的起点高得多。M2 的开放段重解码 + LocalAgreement-2 正是为了解决这个：
+  在 SenseVoice 上它应该能同时拿到 `CER ≈ 0.05` 和亚秒级延迟。
+- 伪参考是 Whisper small 的输出，偏向 Whisper；SenseVoice 在偏向对手的参考下仍拿到 0.022，结论是稳的。
+  但这仍然是**伪参考**，正式评测需要人工校对转写。
+- SenseVoice 的语言是**构造参数**，不能在调用时切换（`decode_stream` 不接受 `language`）；
+  换语言要另建实例。适配器里已经显式报错而不是静默忽略。
+- SenseVoice 不支持 `initial_prompt`（无法用它续写上文的 prompt）。流式上下文必须在分段层实现，
+  不能依赖引擎自身的 prompt 机制——这一点对 M2 的设计有直接影响。
+- 网络：GitHub Releases 直连约 **2 KB/s**（158 MB 要 20 小时以上），`gh-proxy.com` 776 KB/s、
+  `hf-mirror.com` 669 KB/s、ModelScope 4.1 MB/s。`tools/setup_models.py` 已内置按速度排序的镜像列表与失速检测。
+  另外 PyPI 的 `sherpa-onnx-core` 只有 `py3-none-*` 标签（纯 Python 标签），
+  所以 Python 3.13 可用；用 `--no-index --find-links` 离线安装避免了 pip 联网解析卡死。
+
+### 10.6 对后续里程碑的影响
+
+- **M2 建在 SenseVoice 上**，faster-whisper 保留作为"离线精修/对照"通道。
+- 双通道（方案 C）的定位要重新表述：不再是"tiny 救延迟、base 救质量"，
+  而是**"SenseVoice 出草稿与定稿、Whisper 只在需要时做离线精修"**。
+- 由于余量巨大，可以负担此前被否掉的手段：**重叠窗口**（`overlap_benchmark.py` 当年测出 2.46 倍实时，
+  在 SenseVoice 上是 0.04 量级，完全可负担）。
+- 翻译预算充裕（Argos en→zh 稳态 78 ms），M5 用 opus-mt-ja-zh 直连即可，不必再省。
+
+### 10.7 复现命令
+
+```powershell
+$py = "C:\text\.venv\Scripts\python.exe"
+
+# 安装模型（自动走最快的镜像）
+& $py -u tools\setup_models.py --engine sensevoice-2024
+
+# 判定实验：同一段音频、同一个台架，只换引擎
+& $py -u tools\replay.py --wav sample_0230_0300.wav --pipeline fixed_chunk `
+    --engine sensevoice --model sensevoice-2024 --chunk 1.0 --min-speech 0.4 --repeat 3 `
+    --out runs\SV_gate_1s.jsonl
+
+# 与 Whisper 同表对比
+& $py -u tools\metrics.py runs\A_legacy_nogate_2s.jsonl runs\D_m0_gate_2s.jsonl `
+    runs\H_tiny_gate_07s.jsonl runs\SV_gate_3s.jsonl runs\SV_gate_2s.jsonl `
+    runs\SV_gate_1s.jsonl runs\SV_gate_07s.jsonl --reference runs\reference_small.txt
+```
+

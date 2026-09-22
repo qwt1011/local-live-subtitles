@@ -1,3 +1,11 @@
+# 流式字幕引擎（判定实验结论：M2 建在 SenseVoice 上）
+# sherpa-onnx 的 sherpa-onnx-core 依赖是 py3-none-* 纯 Python 标签，Python 3.13 可用。
+# 注意：pip 会联网解析 sherpa-onnx-core，在这台机器上会卡住；
+# 安装方式见 tools/setup_models.py 的 docstring（离线 wheel + --find-links）。
+sherpa-onnx>=1.13,<2
+
+# 对照/离线精修通道，同时是 tools/offline_reference.py 生成伪参考用的引擎
 faster-whisper>=1.1,<2
+
 # Optional local translation: install separately when needed.
 # argostranslate>=1.9,<2
