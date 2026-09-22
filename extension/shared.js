@@ -1,0 +1,185 @@
+/**
+ * 扩展端的纯逻辑：PCM 分帧 + 字幕事件状态机。
+ *
+ * 单独抽出来的原因：这部分是唯一能在浏览器之外被验证的（tests/test_extension_logic.js 用 Node 跑）。
+ * 音频采集和渲染必须靠真机验证，但"PCM 有没有切错""revision 会不会回跳"这类错误
+ * 完全可以在 Node 里先测掉，不必每次都去开 Chrome 点 YouTube。
+ *
+ * 同时在浏览器（挂到 self.SubtitleShared）和 Node（module.exports）下可用。
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) {
+    module.exports = api;
+  } else {
+    root.SubtitleShared = api;
+  }
+})(typeof self !== 'undefined' ? self : globalThis, function () {
+  'use strict';
+
+  // 服务端要求的格式：16 kHz 单声道 s16le 裸 PCM（见 app/server.py 的协议说明）。
+  const TARGET_SAMPLE_RATE = 16000;
+  const WS_URL = 'ws://127.0.0.1:8766';
+  // 100ms 一帧：太小会让消息数量爆炸，太大会增加传输延迟。
+  const FRAME_MS = 100;
+  const FRAME_SAMPLES = (TARGET_SAMPLE_RATE * FRAME_MS) / 1000;
+
+  /** Float32 [-1,1] → Int16。服务端按 s16le 解析。 */
+  function floatToInt16(input) {
+    const out = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i += 1) {
+      let value = input[i];
+      if (value > 1) value = 1;
+      else if (value < -1) value = -1;
+      out[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+    }
+    return out;
+  }
+
+  /**
+   * 把不定长的音频块拼成固定长度的帧。
+   * AudioWorklet 每次给 128 个采样，服务端要的是 100ms 一帧，中间必须缓冲。
+   */
+  class PcmFramer {
+    constructor(frameSamples = FRAME_SAMPLES) {
+      this.frameSamples = frameSamples;
+      this.chunks = [];
+      this.length = 0;
+    }
+
+    push(samples) {
+      if (!samples || samples.length === 0) return;
+      this.chunks.push(samples);
+      this.length += samples.length;
+    }
+
+    /** 凑够一帧就取出；一次可能取出多帧。 */
+    drain() {
+      const frames = [];
+      while (this.length >= this.frameSamples) {
+        const frame = new Float32Array(this.frameSamples);
+        let filled = 0;
+        while (filled < this.frameSamples) {
+          const head = this.chunks[0];
+          const take = Math.min(head.length, this.frameSamples - filled);
+          frame.set(head.subarray(0, take), filled);
+          filled += take;
+          if (take === head.length) this.chunks.shift();
+          else this.chunks[0] = head.subarray(take);
+        }
+        this.length -= this.frameSamples;
+        frames.push(frame);
+      }
+      return frames;
+    }
+
+    /** 丢弃未成帧的尾巴，避免上一句话的残音被拼到下一句开头。 */
+    reset() {
+      this.chunks = [];
+      this.length = 0;
+    }
+  }
+
+  /**
+   * 字幕事件状态机。
+   *
+   * 服务端会为同一句话连续发多个 revision（partial 在前、final 在后），
+   * 渲染端必须：
+   *   1. 只允许 revision 单调前进（否则字幕会回跳）；
+   *   2. partial 用"未定稿"样式原地替换，final 到达后转成定稿样式（不闪烁）。
+   */
+  class SubtitleState {
+    constructor(maxLines = 2) {
+      this.maxLines = maxLines;
+      this.segments = new Map();
+      this.lastEventAt = 0;
+      this.eventCount = 0;
+      this.appliedCount = 0;
+      this.outOfOrderCount = 0;
+    }
+
+    /** 返回 true 表示这次事件真的改变了显示内容。 */
+    apply(event) {
+      if (!event || typeof event.segment_id !== 'number') return false;
+      this.eventCount += 1;
+      this.lastEventAt = Date.now();
+
+      const previous = this.segments.get(event.segment_id);
+      if (previous && event.revision <= previous.revision) {
+        // 迟到的旧 revision：丢弃，否则用户会看到字幕倒退。
+        this.outOfOrderCount += 1;
+        return false;
+      }
+      this.segments.set(event.segment_id, {
+        segmentId: event.segment_id,
+        revision: event.revision,
+        original: event.text || '',
+        translation: event.translation || '',
+        isFinal: Boolean(event.is_final),
+      });
+      this.appliedCount += 1;
+      return true;
+    }
+
+    /** 取最后 maxLines 句，按 segment_id 升序。 */
+    lines() {
+      const ordered = Array.from(this.segments.values())
+        .sort((a, b) => a.segmentId - b.segmentId)
+        .filter((row) => row.original || row.translation);
+      return ordered.slice(-this.maxLines);
+    }
+
+    /** 当前是否还有未定稿的行（用于给最新一行加"草稿"样式）。 */
+    hasPending() {
+      const lines = this.lines();
+      return lines.length > 0 && !lines[lines.length - 1].isFinal;
+    }
+
+    reset() {
+      this.segments.clear();
+      this.eventCount = 0;
+      this.appliedCount = 0;
+      this.outOfOrderCount = 0;
+    }
+  }
+
+  const MODES = ['original', 'translation', 'bilingual'];
+
+  /**
+   * 选择字幕覆盖层的挂载点。
+   *
+   * 必须挂到 fullscreen element 的后代里：YouTube 进入全屏后，只有该元素及其后代参与渲染，
+   * 挂在 document.documentElement 上的兄弟节点**完全不会显示**——
+   * 这就是"全屏下字幕消失"的原因（ARCHITECTURE_REVIEW.md S6）。
+   * 单独抽成函数是为了能在 Node 里测掉，不必真的去开全屏。
+   */
+  function pickMountParent(doc) {
+    return doc.fullscreenElement
+      || doc.webkitFullscreenElement
+      || doc.documentElement;
+  }
+
+  /** 按显示模式决定每一行显示什么。 */
+  function composeLine(row, mode) {
+    const showOriginal = mode !== 'translation';
+    const showTranslation = mode !== 'original';
+    return {
+      original: showOriginal ? row.original : '',
+      translation: showTranslation ? row.translation : '',
+      isFinal: row.isFinal,
+    };
+  }
+
+  return {
+    TARGET_SAMPLE_RATE,
+    WS_URL,
+    FRAME_MS,
+    FRAME_SAMPLES,
+    MODES,
+    floatToInt16,
+    PcmFramer,
+    SubtitleState,
+    composeLine,
+    pickMountParent,
+  };
+});

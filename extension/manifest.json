@@ -1,16 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Local Live Subtitles",
-  "version": "0.1.0",
-  "description": "Local Japanese and English subtitles for YouTube.",
+  "version": "0.2.0",
+  "description": "本地日语/英语实时中文字幕（音频不出本机）",
+  "minimum_chrome_version": "116",
   "permissions": ["activeTab", "storage", "tabCapture", "offscreen"],
   "host_permissions": ["https://www.youtube.com/*"],
-  "action": {"default_popup": "popup.html"},
-  "background": {"service_worker": "background.js"},
-  "web_accessible_resources": [{"resources": ["offscreen.html", "offscreen.js"], "matches": ["https://www.youtube.com/*"]}],
-  "content_scripts": [{
-    "matches": ["https://www.youtube.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }]
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:8766 http://127.0.0.1:8766 ws://localhost:8766"
+  },
+  "action": { "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js" },
+  "web_accessible_resources": [
+    {
+      "resources": ["pcm-worklet.js"],
+      "matches": ["https://www.youtube.com/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["shared.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }

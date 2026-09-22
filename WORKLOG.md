@@ -204,11 +204,57 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
 
 进度：**M0 ✓ M1 ✓ 换引擎判定 ✓ M2 ✓ M3 ✓**，剩下 M4（扩展渲染/全屏）、M5（opus-mt 翻译）、M6（浏览器实测）。
 
+## M4 完成：扩展端（AudioWorklet + 两态渲染 + 全屏修复）
+
+扩展从 0.1.0 升到 0.2.0，采集层彻底换掉。
+
+**采集层（去掉 MediaRecorder / WebM / 临时文件）**
+
+- 新增 `extension/pcm-worklet.js`：AudioWorklet 直接把裸 PCM 交出来。
+  `AudioContext({sampleRate:16000})` 让浏览器负责重采样，不在 JS 里手写。
+- `extension/offscreen.js` 只做"哑采集 + 推 WebSocket"，**不做任何分段决策**（不变式 1）；
+  没连上时直接丢帧而不是排队（不变式 3）。
+- `manifest.json` 增加 `content_security_policy.connect-src`（允许连 `ws://127.0.0.1:8766`）、
+  `minimum_chrome_version: 116`（`offscreen.hasDocument()` 需要）。
+
+**渲染层**
+
+- **修全屏消失**：覆盖层改为挂到 `document.fullscreenElement` 内部，并在 `fullscreenchange`
+  时重新挂载。这是 `DEVELOPMENT.md` 验收项"全屏可用"一直没过的原因。
+- **partial / final 两态**：`SubtitleState` 按 `segment_id + revision` 维护，
+  partial 原地替换成草稿样式（半透明 + 结尾 `…`），final 到达后原地转成定稿样式，不闪烁；
+  **迟到的旧 revision 直接丢弃**——这是字幕回跳的根治办法。
+- 覆盖层容器 `pointer-events:none`，只有文字块 `pointer-events:auto`，不再吃掉 YouTube 控件的点击。
+- 设置（模式/字号/位置）读写 `chrome.storage.local` 并监听 `storage.onChanged`，
+  刷新页面不再回落成"双语"。
+
+**状态与健壮性**
+
+- `background.js` 把 `activeTabId` / `capturing` 存进 `chrome.storage.session`：
+  原来放在内存变量里，MV3 的 service worker 一被回收字幕就**静默停止**且不恢复。
+- offscreen 的消息监听器显式 `sendResponse`：否则 `background` 那边 `await sendMessage`
+  会以 "message port closed" 失败，表现为"点了开始捕获没反应"。
+- popup 显示引擎名、已接收音频秒数、最近一条延迟（并标明是草稿还是定稿）。
+
+**没有浏览器也能跑的验证（本次新增 `tests/`）**
+
+| 测试 | 覆盖 | 结果 |
+|---|---|---|
+| `node tests/test_extension_logic.js` | PCM 分帧样点守恒、int16 截断、revision 单调、全屏挂载点、显示模式 | **24 项通过** |
+| `node tests/test_ws_protocol.js` | 用扩展真实的 `PcmFramer`+`floatToInt16` 走真实 WebSocket，校验帧格式与事件契约 | **7 项通过** |
+
+刻意做这两个测试的原因：掉帧、revision 回跳、挂载点选错在浏览器里只表现为"字幕偶尔怪一下"，
+几乎无法复现；在 Node 里是确定的失败。写这套测试时它确实抓到了一个错误（那次错的是测试自己的算术）。
+
+**仍需真机验收**：安装步骤与 10 项人工检查清单见 `extension/README.md`。
+
+**进度：M0 ✓ M1 ✓ 换引擎判定 ✓ M2 ✓ M3 ✓ M4 ✓（待真机验收）**，剩 M5（opus-mt 翻译）、M6（浏览器端到端）。
+
 ## 下一步（最新）
 
-1. **M4**：扩展端改 AudioWorklet 取 PCM + WebSocket；partial/final 两态渲染；
-   修全屏挂载（overlay 现在挂在 `documentElement`，YouTube 全屏时会整个消失）；
-   设置持久化（刷新后 `mode` 会回落）；popup 显示连接状态与实时延迟。
-2. **M5**：`opus-mt-ja-zh` + ctranslate2 直连翻译，独立 worker 不阻塞识别。
-3. **M6**：真实 YouTube 页面端到端验证，回填验收清单。
+1. **M6 真机验收**：按 `extension/README.md` 的清单逐条过，重点是第 2 项（全屏下字幕可见）
+   和第 7 项（刷新后设置保留）——这两项正是原来坏掉的地方。
+2. **M5**：`opus-mt-ja-zh` + ctranslate2 直连翻译，独立 worker 不阻塞识别；
+   翻译结果作为同一 segment 的更高 `revision` 回传，渲染端已经支持这条路径
+   （`tests/test_extension_logic.js` 里有一条专门测它）。
 
