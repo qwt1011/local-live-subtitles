@@ -1,0 +1,3 @@
+faster-whisper>=1.1,<2
+# Optional local translation: install separately when needed.
+# argostranslate>=1.9,<2

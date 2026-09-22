@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 大体积媒体文件不入库（示例音频 fixture 保留在仓库里，14MB 的源视频不入库）
+*.mp4
+*.mkv
+*.flv
+
+# 模型与语言包缓存：体积大、可重新下载
+models/
+argos_packages/
+*.ct2/
+*.bin
+*.onnx
+*.pt
+
+# 运行产物
+*.jsonl
+*.log
+runs/
+.local/
