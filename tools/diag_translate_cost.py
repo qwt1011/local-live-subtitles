@@ -40,6 +40,26 @@ EN_SENTENCES = [
 ]
 
 
+def run_instruct(args):
+    from app.translate.factory import create_translator
+
+    print("加载指令模型（transformers + torch，CPU fp32）...")
+    began = time.perf_counter()
+    translator = create_translator("instruct", args.model, threads=args.threads)
+    print(f"加载+预热 {time.perf_counter() - began:.2f}s")
+    print(f"统计：{translator.stats()}")
+
+    sentences = JA_SENTENCES[: args.count]
+    samples = []
+    for sentence in sentences:
+        began = time.perf_counter()
+        out = translator.translate(sentence, source="ja", target="zh")
+        samples.append(time.perf_counter() - began)
+        print(f"  [{len(sentence):3d} 字] {sentence}")
+        print(f"           -> {out}")
+    return samples, 0.0
+
+
 def run_nllb(args):
     from app.translate.nllb_ct2 import NllbTranslator
 
@@ -91,14 +111,16 @@ def run_argos(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--engine", default="nllb", choices=("nllb", "argos"))
+    parser.add_argument("--engine", default="instruct", choices=("instruct", "nllb", "argos"))
     parser.add_argument("--model", default=None)
-    parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--count", type=int, default=8)
     args = parser.parse_args()
 
-    if args.engine == "nllb":
+    if args.engine == "instruct":
+        samples, average_chars = run_instruct(args)
+    elif args.engine == "nllb":
         samples, average_chars = run_nllb(args)
     else:
         samples, average_chars = run_argos(args)

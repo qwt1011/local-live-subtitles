@@ -338,11 +338,12 @@ async def main_async(args):
 
     translator = None
     if args.translate:
-        from .translate.nllb_ct2 import NllbTranslator
-        print(f"加载翻译模型 {args.translate_model} ...", flush=True)
+        from .translate.factory import create_translator
+        print(f"加载翻译模型 {args.translate_engine} / {args.translate_model or '(默认)'} ...", flush=True)
         began = time.perf_counter()
-        translator = NllbTranslator(args.translate_model, threads=args.translate_threads)
-        translator.warm_up()
+        translator = create_translator(args.translate_engine, args.translate_model,
+                                       threads=args.translate_threads,
+                                       backend=args.translate_backend)
         print(f"翻译就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
 
     async def handler(websocket):
@@ -369,11 +370,15 @@ def main():
     parser.add_argument("--max-utterance", type=float, default=10.0)
     parser.add_argument("--call-timeout", type=float, default=None)
     parser.add_argument("--translate", action="store_true",
-                        help="启用本地翻译（需先下载 nllb-ja-zh）")
+                        help="启用本地翻译")
+    parser.add_argument("--translate-engine", default="instruct", choices=("instruct", "nllb"),
+                        help="instruct=本地小指令模型（当前可用）；nllb 实测不可用，仅保留")
     parser.add_argument("--translate-model", default=None,
-                        help="翻译模型目录名，默认 nllb-200-distilled-600M-ct2-int8")
-    parser.add_argument("--translate-threads", type=int, default=2,
-                        help="翻译线程数；刻意留少一点，别和识别抢 CPU")
+                        help="翻译模型目录名，默认取 factory.DEFAULT_MODEL")
+    parser.add_argument("--translate-backend", default="ct2", choices=("ct2", "torch"),
+                        help="instruct 后端：ct2（int8，快数倍）或 torch（fp32）")
+    parser.add_argument("--translate-threads", type=int, default=4,
+                        help="翻译线程数（指令模型用 torch，这个值直接影响其速度）")
     parser.add_argument("--log", type=Path, default=None,
                         help="把本次会话落成台架格式的 JSONL，可直接用 tools/metrics.py 分析")
     args = parser.parse_args()

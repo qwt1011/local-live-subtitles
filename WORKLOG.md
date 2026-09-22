@@ -304,3 +304,36 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
 
 **进度：M0 ✓ M1 ✓ 换引擎判定 ✓ M2 ✓ M3 ✓ M4 ✓（待真机验收）M5 代码就绪、模型未走通 M6 待做。**
 
+## M5 完成：换成指令模型后跑通
+
+NLLB 那条线判定不可用之后（详见上一节与 `BENCHMARK_RESULTS.md` 12.6），
+改用**小参数量指令模型** `Qwen2.5-0.5B-Instruct`：它用自然语言 prompt 表达翻译意图，
+**不经过被证实坏掉的语言标记机制**。
+
+**两种后端实测对比**（8 句日语，6 线程）：
+
+| 后端 | 权重 | 单句中位 | p95 | 加载+预热 |
+|---|---|---|---|---|
+| torch（fp32） | 942 MB | 2163 ms | 4142 ms | 95.4 s |
+| **ct2（int8，默认）** | **473 MB** | **893 ms** | **1561 ms** | **19.4 s** |
+
+**真实会话端到端**（1.0x 推流，服务开着 `--translate`）：
+
+- **中文出现在说完后 0.67–0.88 秒**，双字幕整体仍在 **1.5 秒**目标内。
+- 翻译只对定稿触发、跑在独立线程，**原文延迟完全没被拖慢**
+  （partial p50 0.012s、final p50 0.5s，与不开翻译时一致）。
+- 译文作为同一 `segment_id` 的更高 `revision` 回传，渲染端原地补上。
+
+**质量说实话**：6 句里 5 句可用，1 句生硬（`気をつけた方がいいわよ。` → "你一定要注意的。"）。
+0.5B 就是这个水平，够看懂大意但不精致。换 1.5B 可提升，且只需改
+`app/models_catalog.py` 与 `app/translate/factory.py` 的目录名，管线不用动。
+
+新增/改动：
+- `app/translate/instruct_local.py`（两种后端 + prompt + 输出清洗）
+- `app/translate/factory.py`（服务与诊断共用同一构造路径）
+- `app/server.py` 增加 `--translate-engine` / `--translate-backend`
+- `tools/diag_translate_cost.py` 支持 instruct/nllb/argos 三种后端
+- `tools/ws_client_test.py` 现在会显示译文，并把译文事件标成 `TRANSL`
+
+**进度：M0 ✓ M1 ✓ 换引擎判定 ✓ M2 ✓ M3 ✓ M4 ✓（待真机验收）M5 ✓ M6 待做。**
+

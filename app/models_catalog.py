@@ -27,6 +27,26 @@ HF_MIRRORS = [
 NLLB_LANGS = {"ja": "jpn_Jpan", "zh": "zho_Hans", "en": "eng_Latn"}
 
 CATALOG = {
+    "qwen2.5-0.5b-instruct": {
+        "kind": "hf",
+        "repo": "Qwen/Qwen2.5-0.5B-Instruct",
+        "dir": "Qwen2.5-0.5B-Instruct",
+        "files": [
+            "model.safetensors",
+            "tokenizer.json",
+            "vocab.json",
+            "merges.txt",
+            "tokenizer_config.json",
+            "config.json",
+            "generation_config.json",
+        ],
+        "required": ["model.safetensors", "tokenizer.json"],
+        "languages": "ja -> zh（靠 prompt 指定，不依赖语言标记）",
+        "note": "翻译改用小参数量指令模型（约 0.95GB）。"
+                "理由：NLLB 那条线的 target_prefix 语言标记机制被实测证明是坏的"
+                "（见 BENCHMARK_RESULTS.md 12.6），而指令模型用自然语言 prompt 表达翻译意图，"
+                "完全绕开这个机制。",
+    },
     "nllb-ja-zh-hf": {
         "kind": "hf",
         "repo": "facebook/nllb-200-distilled-600M",

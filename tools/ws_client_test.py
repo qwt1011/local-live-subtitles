@@ -66,11 +66,16 @@ async def run(args):
                     continue
                 events.append(payload)
                 stamp = time.perf_counter() - started
+                translation = payload.get("translation") or ""
+                kind = "FINAL" if payload["is_final"] else "part "
+                if translation:
+                    kind = "TRANSL"   # 同一句话的更高 revision，只带译文
                 print(f"[{stamp:6.2f}s] seg={payload['segment_id']:02d} "
-                      f"rev={payload['revision']:02d} "
-                      f"{'FINAL' if payload['is_final'] else 'part '} "
+                      f"rev={payload['revision']:02d} {kind} "
                       f"audio={payload['audio_start']:5.2f}-{payload['audio_end']:5.2f} "
                       f"lat={payload['latency']:5.2f} | {payload['text']}")
+                if translation:
+                    print(f"{'':19s} 译文 -> {translation}")
 
         task = asyncio.create_task(receiver())
 
