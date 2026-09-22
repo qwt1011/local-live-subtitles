@@ -390,4 +390,110 @@ $sv = "--pipeline","open_utterance","--engine","sensevoice","--model","sensevoic
     runs\base_full30.jsonl --reference runs\reference_small.txt
 ```
 
+---
+
+## 12. M5 翻译：两个错误假设，以及被实测抓住的过程
+
+翻译是这一轮里唯一**没有做成**的部分。把过程完整记下来，因为其中两条教训会重演。
+
+### 12.1 错误假设一：`opus-mt-ja-zh` 存在
+
+我在架构评审里推荐"改用 `opus-mt-ja-zh` + ctranslate2 直连"，**但没有先去确认这个模型存在**。
+实测查询 HuggingFace 的结果：
+
+| 模型 | 是否存在 |
+|---|---|
+| `Helsinki-NLP/opus-mt-ja-zh` | **不存在** |
+| `Helsinki-NLP/opus-mt-tc-big-ja-zh` | **不存在** |
+| `Helsinki-NLP/opus-mt-mul-zh` | **不存在** |
+| `Helsinki-NLP/opus-mt-tc-big-zh-ja` | 存在，但方向相反（zh→ja） |
+| `Helsinki-NLP/opus-mt-ja-en` / `opus-mt-en-zh` | 存在（但那是双重中转） |
+
+这**和 Argos `ja→en` 下载失败是同一类错误**：先假设可用、再去下载，代价是一整轮返工。
+直连 ja→zh 的现实选择是 NLLB-200（`jpn_Jpan → zho_Hans`），也就是最初的选择。
+
+**教训：模型可用性必须先查，再写代码。** 现在 `tools/setup_models.py` 的 catalog 里带 `status` 字段记录这类结论。
+
+### 12.2 错误假设二：预转换的 CT2 模型可以直接用
+
+先用了 `JustFrederik/nllb-200-distilled-600M-ct2-int8`（下载量 1.3 万，看起来最可靠）。
+结果是**退化解码**：不传 `target_prefix` 时立刻输出 EOS（0 个 token），
+传了则把源词反复复读（`▁Hello ▁Hello ▁Hello …`）。
+
+排查过程（每一步都是可复现的）：
+
+1. **换 compute_type**（int8 / float32 / auto / int8_float32）→ 四种结果完全一样，排除量化问题。
+2. **校验完整性**：该仓库没有 manifest，但可以从 HF API 取 LFS 的 sha256 —— 本地文件
+   **sha256 完全一致**，排除下载损坏。
+3. **换一份独立转换**：`osa911/nllb-200-distilled-600M-ct2-int8`（model.bin 591.0MB，
+   带 `manifest.json` 和 `shared_vocabulary.json`，与上一份是不同的转换）→ **同样退化**。
+   这份自带 manifest，逐文件 sha256 校验**全部一致**。
+4. **决定性对照**：本地用**我们自己的 CT2 4.8.1** 转换 `Helsinki-NLP/opus-mt-ja-en`
+   （`ct2-transformers-converter --quantization int8`）→ 输出是**通顺的英文**
+   （`Since there's getting more and more trouble around here these days, …`）。
+   **这证明 CT2 本体和我们的调用方式都没问题，是那两份预转换模型的权重与词表对不上。**
+
+直接证据：给 NLLB 传源语言 `jpn_Jpan` 时，模型吐出的第一个 token 是 **`kor_Hang`（韩语）**——
+说明 `shared_vocabulary` 里的语言标记顺序和 `model.bin` 的 embedding 行**错位**了。
+这类错误不会报错，只会安静地产出垃圾，所以必须靠"换一份转换做对照"才能定位。
+
+### 12.3 顺带发现：解码必须加防重复参数
+
+本地转换的 Marian 在默认参数下也会**复读到 max_decoding_length 才停**（单句 1.7 秒、
+128 个 token）。加上参数后立刻正常：
+
+| 解码参数 | 耗时 | 输出长度 | 结果 |
+|---|---|---|---|
+| 无（`max_decoding_length=128`） | 1.65 s | 128 | 复读到上限 |
+| `no_repeat_ngram_size=3` | 1.79 s | 128 | 仍到上限 |
+| `repetition_penalty=1.2` | 1.02 s | 82 | **正常收尾** |
+| 两者都加 | **0.85 s** | 56 | **正常收尾** |
+
+这和 M0 在 Whisper 上发现的 temperature 回退是同一类问题：**默认解码参数在退化输入上会失控**。
+`app/translate/nllb_ct2.py` 已把这两个参数设为默认。
+
+### 12.4 错误假设三（及时否掉）：ja→en→zh 双重中转凑合能用
+
+既然本地转换 Marian 能跑通，最省事的路线是 `opus-mt-ja-en`（本地转换，74MB int8）
+再串上已装好的 Argos `en→zh`。实测端到端：
+
+```
+原文: 可愛いお兄さんだね。
+  -> EN (3.27s): You are your lovely brother. - You are such a pretty little brother. You' your cute big brother...
+  -> ZH (2.06s): 你是你可爱的兄弟。 - 你是个漂亮的小弟弟。 你可爱的哥哥 你美丽的弟弟... 和你漂亮的弟弟。
+原文: この辺も最近は治安が悪くなってきているから、気をつけた方がいいわよ。
+  -> EN (1.04s): Since there's getting more and around here these days, security is going out of order around here...
+  -> ZH (0.54s): 由于现在这里越来越多,这里的保安 已经失控了,所以你们要小心, 因为它也在这个街区。
+```
+
+英文本身就语法破碎并夹带复读，中文再转一道只会更糊。**这条路否掉**，
+它正好印证了第 7 节"双重中转会叠加误差"的判断。
+
+### 12.5 环境坑：sentencepiece 打不开非 ASCII 路径
+
+本项目在 `C:\text\实验\...` 下。sentencepiece 的 C++ 层在 Windows 上**无法打开含非 ASCII
+字符的路径**——用绝对路径会报：
+
+```
+RuntimeError: NOT_FOUND: "C:\text\实验\asmr_transcription\models\...\sentencepiece.bpe.model"
+```
+
+用相对路径能过，只是因为相对路径恰好全是 ASCII，**换个目录就会翻车**。
+`app/translate/nllb_ct2.py` 改为从字节加载（`load_from_serialized_proto`），彻底绕开路径编码问题。
+注意 `ctranslate2` 自身没有这个问题（它能正常读写中文路径），只有 sentencepiece 有。
+
+### 12.6 当前状态与下一步
+
+- **未完成**：可用的 ja→zh 翻译。
+- **已排除**：预转换的 NLLB CT2 仓库（两份独立转换都坏）、ja→en→zh 双重中转（质量不可用）。
+- **正在做**：下载 `facebook/nllb-200-distilled-600M` 的 fp32 权重（约 2.4GB），
+  用本地 CT2 4.8.1 转换（Marian 已证明这条路能产出词表一致的模型）。
+- **代码已就绪**：`app/translate/nllb_ct2.py` + 服务端独立翻译线程（翻译结果作为同
+  `segment_id` 的更高 `revision` 回传，渲染端已支持，并有单元测试覆盖）。
+  换模型只需要改 catalog 里的目录名。
+
+**延迟预算**：识别端 `cpu_ratio` 只有 0.386，翻译在独立线程里只对定稿触发，
+不占原文延迟。Argos（Marian 量级）实测 78ms/句可作为下限参考；
+NLLB-600M int8 的量级需要转换完成后实测。
+
 

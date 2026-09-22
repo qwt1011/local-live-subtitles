@@ -18,6 +18,7 @@ class SubtitleEvent:
     engine: str
     audio_start: float
     audio_end: float
+    translation: str = ""
     service_seconds: float = 0.0
     finish_wall: float = 0.0
     detail: dict = field(default_factory=dict)
@@ -59,6 +60,8 @@ class SubtitleEvent:
         }
         if self.detail:
             row["detail"] = self.detail
+        if self.translation:
+            row["translation"] = self.translation
         return row
 
 

@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.models_catalog import CATALOG, GITHUB, MODELS_DIR, is_ready  # noqa: E402
+from app.models_catalog import CATALOG, GITHUB, HF_MIRRORS, MODELS_DIR, is_ready  # noqa: E402
 
 # 按实测速度排序（见模块 docstring）。
 MIRRORS = [
@@ -35,14 +35,23 @@ MIRRORS = [
 ]
 
 
+def human(size):
+    return f"{size / 1048576:.1f} MB" if size else "?"
+
+
 def show_catalog():
     for name, entry in CATALOG.items():
         ready = "已就绪" if is_ready(entry) else "未安装"
         print(f"{name}  [{ready}]")
-        print(f"  archive  : {entry['archive']}")
+        if entry.get("kind") == "hf":
+            print(f"  repo     : {entry['repo']}")
+            print(f"  files    : {', '.join(entry['files'])}")
+        else:
+            print(f"  archive  : {entry['archive']}")
         print(f"  dir      : models/{entry['dir']}")
         print(f"  languages: {entry['languages']}")
         print(f"  note     : {entry['note']}")
+        print()
 
 
 def candidate_urls(entry, override=None):
@@ -56,6 +65,10 @@ def candidate_urls(entry, override=None):
         if url not in seen:
             seen.append(url)
     return seen
+
+
+def hf_urls(repo, name):
+    return [pattern.format(repo=repo, file=name) for pattern in HF_MIRRORS]
 
 
 def download_once(url, target, stall_timeout=30, label=""):
@@ -102,11 +115,33 @@ def download(urls, target):
     raise SystemExit("所有镜像都失败：\n  " + "\n  ".join(errors))
 
 
+def install_hf(entry, override_url=None):
+    """按文件下载 HuggingFace 仓库（用于已经转换好的 CTranslate2 模型）。"""
+    directory = MODELS_DIR / entry["dir"]
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in entry["files"]:
+        target = directory / name
+        if target.is_file() and target.stat().st_size > 0:
+            print(f"跳过已存在：{name}")
+            continue
+        urls = [override_url] if override_url else hf_urls(entry["repo"], name)
+        print(f"下载 {name}")
+        download(urls, target)
+    missing = [name for name in entry["required"] if not (directory / name).is_file()]
+    if missing:
+        raise SystemExit(f"缺少必需文件：{missing}")
+    print(f"完成：models/{entry['dir']}")
+
+
 def install(name, override_url=None):
     entry = CATALOG[name]
     if is_ready(entry):
         print(f"{name} 已就绪：models/{entry['dir']}")
         return
+    if entry.get("kind") == "hf":
+        install_hf(entry, override_url)
+        return
+
     archive = MODELS_DIR / entry["archive"]
     if not archive.is_file():
         download(candidate_urls(entry, override_url), archive)
@@ -114,7 +149,7 @@ def install(name, override_url=None):
         print(f"已有压缩包，跳过下载：{archive.name}")
     print(f"解包 {archive.name}")
     with tarfile.open(archive, "r:bz2") as tar:
-        tar.extractall(MODELS_DIR)
+        tar.extractall(MODELS_DIR, filter="data")
     archive.unlink()
     if not is_ready(entry):
         raise SystemExit(f"解包后仍未找到 {entry['dir']}/{entry['model']}")

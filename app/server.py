@@ -37,6 +37,7 @@
 import argparse
 import asyncio
 import json
+import queue
 import threading
 import time
 from pathlib import Path
@@ -44,17 +45,19 @@ from pathlib import Path
 import numpy as np
 
 from .asr.factory import ENGINES, create_engine
-from .events import latency_views, percentile
+from .events import SubtitleEvent, latency_views, percentile
 from .pipelines.open_utterance import OpenUtterancePipeline
 
 SAMPLE_RATE = 16000
 MAX_EVENT_QUEUE = 64
+MAX_TRANSLATE_QUEUE = 16
 
 
 class Session:
-    def __init__(self, args, engine):
+    def __init__(self, args, engine, translator=None):
         self.args = args
         self.engine = engine
+        self.translator = translator
         self.pipeline = OpenUtterancePipeline(
             engine,
             language=args.language,
@@ -65,9 +68,13 @@ class Session:
             call_timeout=args.call_timeout,
         )
         self.lock = threading.Lock()
+        self.translate_queue = queue.Queue(maxsize=MAX_TRANSLATE_QUEUE)
+        self.translate_thread = None
         self.loop = None
         self.aset_queue = None
         self.dropped = 0
+        self.translated = 0
+        self.translate_dropped = 0
         self.started_at = time.perf_counter()
         self.received_samples = 0
         self.thread = None
@@ -95,6 +102,9 @@ class Session:
         self.running = True
         self.thread = threading.Thread(target=self._work_loop, daemon=True)
         self.thread.start()
+        if self.translator is not None:
+            self.translate_thread = threading.Thread(target=self._translate_loop, daemon=True)
+            self.translate_thread.start()
 
     def stop(self):
         with self.lock:
@@ -102,6 +112,10 @@ class Session:
         self.running = False
         if self.thread:
             self.thread.join(timeout=15)
+        if self.translate_thread:
+            # 让翻译线程把队列里剩下的翻完再退出（定稿文本不该因为停止捕获而丢翻译）。
+            self.translate_queue.put(None)
+            self.translate_thread.join(timeout=15)
 
     def feed(self, payload):
         if not self.running:
@@ -141,6 +155,18 @@ class Session:
                 event.service_seconds = finished - began
                 event.finish_wall = finished - self.started_at
                 self._emit(event)
+                self._maybe_translate(event)
+
+    def _maybe_translate(self, event):
+        """只翻译定稿文本。翻译不是关键路径，队列满了就丢，绝不拖累识别。"""
+        if self.translator is None or not event.is_final or not event.text:
+            return
+        try:
+            self.translate_queue.put_nowait(
+                (event.segment_id, event.revision, event.text, event.audio_start, event.audio_end)
+            )
+        except queue.Full:
+            self.translate_dropped += 1
 
     def _emit(self, event):
         row = event.to_dict()
@@ -151,6 +177,47 @@ class Session:
         if self.loop is None:
             return
         self.loop.call_soon_threadsafe(self._offer, payload)
+
+    # --- 翻译线程 ---------------------------------------------------------
+
+    def _translate_loop(self):
+        """独立线程翻译定稿文本。
+
+        刻意放在识别线程之外：翻译不能阻塞识别，也不能把延迟加到原文上。
+        结果作为**同一个 segment_id 的更高 revision** 回传，
+        渲染端只按 revision 单调前进，所以原文先显示、译文稍后补上，不会闪烁
+        （这条路径在 tests/test_extension_logic.js 里有专门的用例）。
+        """
+        while True:
+            item = self.translate_queue.get()
+            if item is None:
+                break
+            segment_id, revision, text, audio_start, audio_end = item
+            try:
+                began = time.perf_counter()
+                translated = self.translator.translate(text, source=self.args.language, target="zh")
+                elapsed = time.perf_counter() - began
+            except Exception as exc:
+                print(f"翻译失败：{type(exc).__name__}: {exc}", flush=True)
+                continue
+            if not translated:
+                continue
+            self.translated += 1
+            event = SubtitleEvent(
+                segment_id=segment_id,
+                revision=revision + 1,
+                text=text,
+                is_final=True,
+                engine=self.translator.name,
+                audio_start=audio_start,
+                audio_end=audio_end,
+                translation=translated,
+                service_seconds=elapsed,
+                finish_wall=time.perf_counter() - self.started_at,
+                detail={"translation": True, "translate_seconds": round(elapsed, 3)},
+            )
+            self.service_seconds += elapsed
+            self._emit(event)
 
     def _offer(self, payload):
         """在事件循环线程里执行：满了就丢最旧的，永不排队。"""
@@ -183,6 +250,8 @@ class Session:
             "finals": self.pipeline.stats.get("finals"),
             "gated_skips": self.pipeline.stats.get("skipped"),
             "timeouts": self.pipeline.stats.get("timeouts"),
+            "translated": self.translated,
+            "translate_dropped": self.translate_dropped,
             "first_show_p95": round(percentile(views["first_show"], 0.95), 3),
             "latency_p50": round(percentile(views["mean"], 0.50), 3),
             "latency_p95": round(percentile(views["mean"], 0.95), 3),
@@ -208,8 +277,8 @@ def write_log(path, args, session):
     print(f"会话日志已写入 {path}", flush=True)
 
 
-async def handle(websocket, args, engine):
-    session = Session(args, engine)
+async def handle(websocket, args, engine, translator=None):
+    session = Session(args, engine, translator)
     session.bind_loop(asyncio.get_running_loop())
     print(f"客户端已连接，engine={args.engine} model={args.model}", flush=True)
     sender = asyncio.create_task(_sender(websocket, session))
@@ -267,8 +336,17 @@ async def main_async(args):
                            threads=args.threads)
     print(f"引擎就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
 
+    translator = None
+    if args.translate:
+        from .translate.nllb_ct2 import NllbTranslator
+        print(f"加载翻译模型 {args.translate_model} ...", flush=True)
+        began = time.perf_counter()
+        translator = NllbTranslator(args.translate_model, threads=args.translate_threads)
+        translator.warm_up()
+        print(f"翻译就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
+
     async def handler(websocket):
-        await handle(websocket, args, engine)
+        await handle(websocket, args, engine, translator)
 
     async with ws_server.serve(handler, args.host, args.port,
                                max_size=None, ping_interval=20):
@@ -290,6 +368,12 @@ def main():
     parser.add_argument("--partial-step", type=float, default=0.5)
     parser.add_argument("--max-utterance", type=float, default=10.0)
     parser.add_argument("--call-timeout", type=float, default=None)
+    parser.add_argument("--translate", action="store_true",
+                        help="启用本地翻译（需先下载 nllb-ja-zh）")
+    parser.add_argument("--translate-model", default=None,
+                        help="翻译模型目录名，默认 nllb-200-distilled-600M-ct2-int8")
+    parser.add_argument("--translate-threads", type=int, default=2,
+                        help="翻译线程数；刻意留少一点，别和识别抢 CPU")
     parser.add_argument("--log", type=Path, default=None,
                         help="把本次会话落成台架格式的 JSONL，可直接用 tools/metrics.py 分析")
     args = parser.parse_args()
