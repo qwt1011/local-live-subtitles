@@ -59,13 +59,17 @@ $py = "C:\text\.venv\Scripts\python.exe"
 
 ```powershell
 # 必须用 -m 运行（app.server 里有相对导入）
-& $py -u -m app.server --engine sensevoice --model sensevoice-2024 --log runs\live.jsonl
+& $py -u -m app.server --engine sensevoice --model sensevoice-2024 `
+    --translate --translate-engine instruct --log runs\live.jsonl
 ```
 
 协议：客户端先发 `{"type":"start","language":"ja"}`，然后连续发送
 **16 kHz 单声道 s16le 裸 PCM** 二进制帧（客户端不做任何分段决策）；
 服务端回 JSON 文本帧 `{"type":"event", "segment_id", "revision", "text", "is_final", ...}`。
 `revision` 单调递增，渲染端只允许前进，否则字幕会回跳。
+
+译文作为**同一个 `segment_id` 的更高 `revision`** 回传（带 `translation` 字段），
+所以原文先显示、中文稍后原地补上，不会闪烁。实测中文出现在说完后 **0.67–0.88 秒**。
 
 `--log` 写出的 JSONL 与离线台架同格式，可以直接用 `tools/metrics.py` 分析真实会话。
 
@@ -74,6 +78,31 @@ $py = "C:\text\.venv\Scripts\python.exe"
 ```powershell
 & $py -u tools\ws_client_test.py --wav sample_0230_0300.wav --speed 1.0
 ```
+
+## 本地翻译（M5）
+
+用本地小参数量指令模型 `Qwen2.5-0.5B-Instruct` 做 ja→zh：
+
+```powershell
+# 1) 下载模型
+& $py -u tools\setup_models.py --engine qwen2.5-0.5b-instruct
+
+# 2) 转成 CTranslate2 int8（473MB，比 fp32 快 2.4 倍、省 4 倍内存）
+& "C:\text\.venv\Scripts\ct2-transformers-converter.exe" `
+    --model models\Qwen2.5-0.5B-Instruct `
+    --output_dir models\Qwen2.5-0.5B-Instruct-ct2-int8 --quantization int8 --force
+
+# 3) 标定
+& $py -u tools\diag_translate_cost.py --engine instruct --count 8
+```
+
+**为什么不用 NLLB**：NLLB 依赖的 `target_prefix` 语言标记机制在 CTranslate2 4.8.1 下
+**被完全忽略**——换任何目标语言都输出同一段英文回声；两份预转换仓库和本地转换都一样，
+而同一个 CT2 转出来的 Marian 模型工作正常。完整排查过程见 `BENCHMARK_RESULTS.md` 第 12 节。
+指令模型用自然语言 prompt 表达翻译意图，绕开了这个机制。
+
+**质量**：0.5B 的固有水平——够看懂大意，不保证精致。要更好可换 1.5B，
+只需改 `app/models_catalog.py` 与 `app/translate/factory.py` 的目录名，管线不用动。
 
 ## 旧的 HTTP 服务（将被 M4 替换）
 
@@ -86,8 +115,10 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 
 ## 翻译
 
-当前 `local_service.py` 里的 Argos 走 `ja→en→zh` 双重中转，而 `ja→en` 语言包至今安装失败，
-日语翻译链路实际从未端到端跑通。计划（M5）改用 `opus-mt-ja-zh` + `ctranslate2` 直连，
-作为独立 worker 不阻塞识别。详见 `BENCHMARK_RESULTS.md` 第 7 节。
+**已完成（M5）**：本地 `Qwen2.5-0.5B-Instruct`（CT2 int8）直连 ja→zh，
+中文出现在说完后 0.67–0.88 秒，只对定稿触发、不占原文延迟。见上面的「本地翻译」一节。
+
+历史上的 Argos 方案（`ja→en→zh` 双重中转）已被放弃，原因是 `ja→en` 语言包始终装不上，
+而且实测双重中转的英文本身就语法破碎、中文更糊。
 
 

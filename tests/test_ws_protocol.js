@@ -136,10 +136,16 @@ async function main() {
   console.log(`\n收到 ${events.length} 个事件，服务状态：${JSON.stringify(statusMessage)}`);
 
   const partials = events.filter((event) => !event.is_final);
-  const finals = events.filter((event) => event.is_final && event.text);
+  // 译文是"同一 segment_id 的更高 revision"，所以它也是 is_final=true。
+  // 判断原文事件时必须把它排除掉，否则"每句只有一个 final"之类的断言会误报。
+  const isTranslation = (event) => Boolean(event.detail && event.detail.translation);
+  const originals = events.filter((event) => !isTranslation(event));
+  const finals = originals.filter((event) => event.is_final && event.text);
+  const translations = events.filter(isTranslation);
   const latencies = partials.map((event) => event.latency);
 
-  console.log('\n---- 断言 ----');
+  console.log(`\n收到 ${events.length} 个事件（其中译文 ${translations.length} 条），`
+    + `服务状态：${JSON.stringify(statusMessage)}`);
   const checks = [];
   const check = (name, fn) => {
     try {
@@ -176,15 +182,26 @@ async function main() {
     }
   });
 
-  check('每个 segment 最多一个 final', () => {
+  check('每个 segment 最多一个**原文** final（译文 revision 不算）', () => {
     const finalsPerSegment = new Map();
-    for (const event of events) {
+    for (const event of originals) {
       if (!event.is_final) continue;
       const key = event.segment_id;
       finalsPerSegment.set(key, (finalsPerSegment.get(key) || 0) + 1);
     }
     for (const [key, count] of finalsPerSegment) {
-      assert.strictEqual(count, 1, `seg=${key} 有 ${count} 个 final`);
+      assert.strictEqual(count, 1, `seg=${key} 有 ${count} 个原文 final`);
+    }
+  });
+
+  check('译文事件不改变原文（text 与所属 final 一致）', () => {
+    const finalText = new Map();
+    for (const event of originals) {
+      if (event.is_final) finalText.set(event.segment_id, event.text);
+    }
+    for (const event of translations) {
+      assert.strictEqual(event.text, finalText.get(event.segment_id),
+        `seg=${event.segment_id} 的译文事件改了原文`);
     }
   });
 
@@ -200,12 +217,23 @@ async function main() {
     }
   });
 
-  check('音频位置单调不倒退', () => {
+  check('原文事件的音频位置单调不倒退（译文事件允许晚到）', () => {
+    // 译文事件是**故意晚到**的：第 N 句的译文可能在第 N+1 句的 partial 之后才到达，
+    // 所以不能用全部事件去断言音频顺序。渲染端只按 (segment_id, revision) 排序，
+    // 不依赖到达顺序——这正是那条不变式的意义。
     let previous = -1;
-    for (const event of events) {
+    for (const event of originals) {
       assert.ok(event.audio_end >= previous - 1e-6,
         `audio_end ${event.audio_end} < 上一个 ${previous}`);
       previous = Math.max(previous, event.audio_start);
+    }
+  });
+
+  check('译文事件与原文事件属于同一个 segment（渲染端才能原地替换）', () => {
+    const ids = new Set(originals.map((event) => event.segment_id));
+    for (const event of translations) {
+      assert.ok(ids.has(event.segment_id),
+        `译文 seg=${event.segment_id} 找不到对应的原文事件`);
     }
   });
 
@@ -219,6 +247,13 @@ async function main() {
   }
   console.log('\n---- 定稿文本 ----');
   console.log(finals.map((event) => event.text).join(' '));
+  if (translations.length) {
+    console.log('\n---- 译文（同 segment 的更高 revision） ----');
+    for (const event of translations) {
+      console.log(`  seg=${event.segment_id} ${event.text}`);
+      console.log(`         -> ${event.translation}`);
+    }
+  }
 
   const failed = checks.filter(([, ok]) => !ok);
   console.log(`\n${checks.length - failed.length}/${checks.length} 项通过`);
