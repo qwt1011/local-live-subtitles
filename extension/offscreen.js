@@ -33,6 +33,16 @@ function publishStatus(patch) {
   chrome.runtime.sendMessage({ type: 'capture-status', status: payload }).catch(() => {});
 }
 
+/**
+ * 启动采集。每一步都单独盯错误。
+ *
+ * 为什么这么啰嗦：原来只有 getUserMedia 一步有错误处理，而且失败后
+ * 只是记一条状态就 return（调用方以为成功了）；后面几步（AudioContext、
+ * addModule、AudioWorkletNode）完全没有保护，抛出的异常会被 background 的
+ * `.catch(() => {})` 吞掉。结果就是"点了开始捕获、什么都没发生、也没有任何报错"。
+ * 现在每一步都有名字，失败时把**是哪一步**写进状态，popup 与 offscreen 控制台都能看到，
+ * 并且 rethrow 让调用方知道失败了。
+ */
 async function start(streamId, language) {
   await stop();
   sessionLanguage = language || 'ja';
@@ -40,79 +50,110 @@ async function start(streamId, language) {
   sentSamples = 0;
   framer.reset();
 
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
-      video: false,
-    });
-  } catch (error) {
-    publishStatus({ connected: false, error: `获取标签页音频失败：${error}` });
-    return;
-  }
+  const step = async (name, action) => {
+    publishStatus({ connected: false, state: 'starting', step: name, error: null });
+    console.log(`[本地字幕] ${name}…`);
+    try {
+      const value = await action();
+      console.log(`[本地字幕] ${name} 完成`);
+      return value;
+    } catch (error) {
+      const message = `${name}失败：${error && error.name ? error.name + ' ' : ''}${error}`;
+      console.error(`[本地字幕] ${message}`, error);
+      publishStatus({ connected: false, state: 'error', step: name, error: message });
+      throw error;      // 让 background / popup 也能看到失败
+    }
+  };
+
+  mediaStream = await step('① 获取标签页音频', () => navigator.mediaDevices.getUserMedia({
+    audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
+    video: false,
+  }));
 
   // 直接建 16 kHz 的上下文，让浏览器负责重采样，比在 JS 里手写重采样可靠。
-  audioContext = new AudioContext({ sampleRate: Shared.TARGET_SAMPLE_RATE });
+  audioContext = await step('② 创建 16 kHz AudioContext',
+    () => new AudioContext({ sampleRate: Shared.TARGET_SAMPLE_RATE }));
   if (audioContext.state === 'suspended') await audioContext.resume();
-  await audioContext.audioWorklet.addModule(chrome.runtime.getURL('pcm-worklet.js'));
 
-  sourceNode = audioContext.createMediaStreamSource(mediaStream);
-  // tabCapture 会把原标签页静音，必须把音频接回输出，否则用户听不到声音。
-  sourceNode.connect(audioContext.destination);
+  await step('③ 加载 PCM worklet',
+    () => audioContext.audioWorklet.addModule(chrome.runtime.getURL('pcm-worklet.js')));
 
-  workletNode = new AudioWorkletNode(audioContext, 'pcm-tap');
-  workletNode.port.onmessage = (event) => onSamples(event.data);
-  sourceNode.connect(workletNode);
+  sourceNode = await step('④ 接上音频源', () => {
+    const node = audioContext.createMediaStreamSource(mediaStream);
+    // tabCapture 会把原标签页静音，必须把音频接回输出，否则用户听不到声音。
+    node.connect(audioContext.destination);
+    return node;
+  });
 
-  connectSocket(sessionLanguage);
-  publishStatus({ connected: false, state: 'connecting' });
+  workletNode = await step('⑤ 建立 AudioWorkletNode', () => {
+    const node = new AudioWorkletNode(audioContext, 'pcm-tap');
+    node.port.onmessage = (event) => onSamples(event.data);
+    sourceNode.connect(node);
+    return node;
+  });
+
+  await step('⑥ 连接本地服务', () => connectSocket(sessionLanguage));
+  publishStatus({ connected: false, state: 'connecting', step: null, error: null });
 }
 
+/** 连上本地流式服务。返回 Promise，让失败能被第 ⑥ 步捕获。 */
 function connectSocket(language) {
-  try {
-    socket = new WebSocket(Shared.WS_URL);
-  } catch (error) {
-    publishStatus({ connected: false, error: String(error) });
-    return;
-  }
-  socket.binaryType = 'arraybuffer';
-
-  socket.onopen = () => {
-    connected = true;
-    socket.send(JSON.stringify({ type: 'start', language }));
-    publishStatus({ connected: true, state: 'listening', error: null });
-  };
-
-  socket.onmessage = (event) => {
-    let payload;
+  return new Promise((resolve, reject) => {
     try {
-      payload = JSON.parse(event.data);
+      socket = new WebSocket(Shared.WS_URL);
     } catch (error) {
+      publishStatus({ connected: false, error: `连接本地服务失败：${error}` });
+      reject(error);
       return;
     }
-    if (payload.type === 'status') {
-      publishStatus({ connected: true, state: payload.state, server: payload });
-      return;
-    }
-    if (payload.type === 'event') {
-      // 只做转发，渲染由 content script 负责。
-      chrome.runtime.sendMessage({ type: 'subtitle-event', payload }).catch(() => {});
-      publishStatus({
-        connected: true,
-        lastLatency: payload.latency,
-        lastSegment: payload.segment_id,
-        lastIsFinal: payload.is_final,
-      });
-    }
-  };
+    socket.binaryType = 'arraybuffer';
 
-  socket.onerror = () => {
-    publishStatus({ connected: false, state: 'error', error: '无法连接本地流式服务（ws://127.0.0.1:8766）' });
-  };
+    // 连不上时不要让第 ⑥ 步永远挂着。
+    const timer = setTimeout(() => reject(new Error(`连接 ${Shared.WS_URL} 超时`)), 5000);
 
-  socket.onclose = () => {
-    connected = false;
-    publishStatus({ connected: false, state: 'closed' });
-  };
+    socket.onopen = () => {
+      clearTimeout(timer);
+      connected = true;
+      socket.send(JSON.stringify({ type: 'start', language }));
+      publishStatus({ connected: true, state: 'listening', step: null, error: null });
+      resolve();
+    };
+
+    socket.onerror = () => {
+      clearTimeout(timer);
+      publishStatus({ connected: false, error: `无法连接本地流式服务（${Shared.WS_URL}）` });
+      reject(new Error(`无法连接 ${Shared.WS_URL}`));
+    };
+
+    socket.onclose = () => {
+      clearTimeout(timer);
+      connected = false;
+      publishStatus({ connected: false, state: 'closed' });
+    };
+
+    socket.onmessage = (event) => {
+      let payload;
+      try {
+        payload = JSON.parse(event.data);
+      } catch (error) {
+        return;
+      }
+      if (payload.type === 'status') {
+        publishStatus({ connected: true, state: payload.state, server: payload });
+        return;
+      }
+      if (payload.type === 'event') {
+        // 只做转发，渲染由 content script 负责。
+        chrome.runtime.sendMessage({ type: 'subtitle-event', payload }).catch(() => {});
+        publishStatus({
+          connected: true,
+          lastLatency: payload.latency,
+          lastSegment: payload.segment_id,
+          lastIsFinal: payload.is_final,
+        });
+      }
+    };
+  });
 }
 
 function onSamples(samples) {

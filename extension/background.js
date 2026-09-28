@@ -1,9 +1,17 @@
 /**
  * Background service worker：只做路由与状态保管，不碰音频。
  *
- * 关键改动：活动标签页 id 存进 chrome.storage.session。
- * 原来的实现放在内存变量里，service worker 一旦被回收（MV3 里很常见），
- * activeTabId 就丢了，字幕会**静默停止**且不会恢复（ARCHITECTURE_REVIEW.md S6）。
+ * 两个关键点，都是踩过坑之后写下来的：
+ *
+ * 1. **活动标签页 id 存进 chrome.storage.session**。原来放在内存变量里，
+ *    service worker 一旦被回收（MV3 里很常见），activeTabId 就丢了，
+ *    字幕会静默停止且不会恢复。
+ *
+ * 2. **给 offscreen 发消息必须重试**。`chrome.offscreen.createDocument()` 返回时
+ *    文档只是"被创建"，里面的 JS 还没执行完、消息监听器还没注册。
+ *    紧接着发消息会得到 "Receiving end does not exist"，而这个失败如果被
+ *    `.catch(() => {})` 吞掉，表现就是"点了开始捕获，什么都没发生，也没有任何报错"。
+ *    这正是用户实际遇到的现象，所以这里用 sendToOffscreen() 带重试。
  */
 
 const SESSION_KEYS = { activeTabId: 'activeTabId', capturing: 'capturing' };
@@ -22,8 +30,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     try {
       if (message.type === 'start-capture') {
-        await startCapture(message.tabId, message.language);
-        sendResponse({ ok: true });
+        sendResponse(await startCapture(message.tabId, message.language, message.streamId));
       } else if (message.type === 'stop-capture') {
         await stopCapture();
         sendResponse({ ok: true });
@@ -35,8 +42,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true });
       } else if (message.type === 'ping-service') {
         // 统一由 background 转发，避免 popup 直接广播时多个监听器抢答。
-        await chrome.runtime.sendMessage({ type: 'offscreen-ping' }).catch(() => {});
-        sendResponse({ ok: true, status: (await chrome.storage.session.get(['captureStatus'])).captureStatus });
+        await sendToOffscreen({ type: 'offscreen-ping' }, { retries: 1 });
+        sendResponse({ ok: true });
       } else if (message.type === 'query-state') {
         sendResponse(await getState());
       }
@@ -47,15 +54,48 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true; // 保持消息通道打开，等待异步 sendResponse
 });
 
-async function startCapture(tabId, language) {
+/**
+ * 给 offscreen 发消息，带重试。
+ *
+ * 这是修"点了开始捕获却没反应"的关键：offscreen 文档的脚本是异步加载的，
+ * 刚创建完就发消息会打空。重试到它把监听器注册好为止。
+ */
+async function sendToOffscreen(message, { retries = 30, delayMs = 100 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await chrome.runtime.sendMessage(message);
+      if (response) return response;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  console.error('[本地字幕] offscreen 未就绪，消息无人接收：', message.type, lastError);
+  return { ok: false, error: `offscreen 文档未就绪（${message.type} 无人接收）` };
+}
+
+async function startCapture(tabId, language, providedStreamId) {
   await stopCapture();
   await setState({ [SESSION_KEYS.activeTabId]: tabId, [SESSION_KEYS.capturing]: true });
 
   await ensureOffscreenDocument();
 
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+  // 优先用 popup 传来的 streamId：popup 有确定的用户手势，
+  // 而 tabCapture 对这个手势敏感（service worker 里隔了几次 await 后可能失效）。
+  let streamId = providedStreamId;
+  if (!streamId) {
+    try {
+      streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    } catch (error) {
+      return { ok: false, error: `取标签页音频流失败：${error}` };
+    }
+  }
   console.log('[本地字幕] 已取得标签页音频流，交给 offscreen');
-  await chrome.runtime.sendMessage({ type: 'offscreen-start', streamId, language }).catch(() => {});
+
+  const response = await sendToOffscreen({ type: 'offscreen-start', streamId, language });
+  if (response && response.ok === false) return response;
+  return { ok: true };
 }
 
 /**
@@ -83,7 +123,8 @@ async function ensureOffscreenDocument() {
 
 async function stopCapture() {
   await setState({ [SESSION_KEYS.capturing]: false });
-  await chrome.runtime.sendMessage({ type: 'offscreen-stop' }).catch(() => {});
+  // 停止时不重试：offscreen 可能压根没创建过，等它没意义。
+  await sendToOffscreen({ type: 'offscreen-stop' }, { retries: 1 });
 }
 
 async function relayToTab(message) {
