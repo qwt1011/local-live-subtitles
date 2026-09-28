@@ -82,6 +82,7 @@ class Session:
         self.eof = False
         self.rows = []
         self.service_seconds = 0.0
+        self._warned_no_audio = False
         self.stats = {"events": 0, "dropped": 0}
 
     # --- 会话生命周期 -----------------------------------------------------
@@ -132,6 +133,29 @@ class Session:
 
     # --- 识别线程 ---------------------------------------------------------
 
+    def _warn_if_no_audio(self):
+        """采集开始了却一直收不到音频时给出明确提示。
+
+        没有这条日志的话，"扩展点了开始捕获但一个字幕都没有"和
+        "扩展根本没在推流"在服务端看起来一模一样（都是沉默），
+        而这两者的排查方向完全不同：前者要去看 offscreen 的 AudioWorklet，
+        后者要去看 popup/background 的取流。
+        """
+        if self._warned_no_audio:
+            return
+        if self.received_samples > 0:
+            self._warned_no_audio = True
+            return
+        if time.perf_counter() - self.started_at < 3.0:
+            return
+        self._warned_no_audio = True
+        print(
+            "警告：已开始采集，但 3 秒内没有收到任何音频。\n"
+            "      请检查 offscreen 的 AudioWorklet 是否在产出采样：\n"
+            "      chrome://extensions → 本扩展 → 「检查视图」offscreen.html → Console。",
+            flush=True,
+        )
+
     def _work_loop(self):
         while True:
             with self.lock:
@@ -142,8 +166,11 @@ class Session:
             if job is None:
                 if self.eof:
                     break
+                self._warn_if_no_audio()
                 time.sleep(0.02)
                 continue
+
+            self._warned_no_audio = True   # 已经有活干，不必再警告
 
             began = time.perf_counter()
             events = self.pipeline.run_job(job)
@@ -294,6 +321,9 @@ async def handle(websocket, args, engine, translator=None):
             kind = control.get("type")
             if kind == "start":
                 session.start()
+                # 这条日志把"扩展真的开始推流了"和"只是 popup 在探测"区分开，
+                # 排查时非常关键（探测只发 ping，不会走到这里）。
+                print(f"采集开始：language={control.get('language', args.language)}", flush=True)
                 await websocket.send(json.dumps({
                     "type": "status", "state": "listening",
                     "engine": args.engine, "model": args.model,
