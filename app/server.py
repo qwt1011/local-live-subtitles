@@ -231,7 +231,8 @@ class Session:
             try:
                 began = time.perf_counter()
                 translated = self.translator.translate(
-                    text, source=self.args.language, target="zh", context=context)
+                    text, source=self.args.language, target="zh",
+                    context=context, style=self.args.translate_style)
                 elapsed = time.perf_counter() - began
             except Exception as exc:
                 print(f"翻译失败：{type(exc).__name__}: {exc}", flush=True)
@@ -429,10 +430,14 @@ def main():
                         help="翻译模型目录名，默认取 factory.DEFAULT_MODEL")
     parser.add_argument("--translate-backend", default="ct2", choices=("ct2", "torch"),
                         help="instruct 后端：ct2（int8，快数倍）或 torch（fp32）")
-    parser.add_argument("--translate-context", type=int, default=2,
-                        help="翻译时带上前几句作为上文（0 = 关闭）。"
-                             "孤立翻译是字幕质量最大的杀手：日语省略主语，"
-                             "「にしても」「お兄さん」这类表达要靠上文才能定意思")
+    parser.add_argument("--translate-context", type=int, default=0,
+                        help="翻译时带上前几句作为上文（**默认 0 = 关闭**）。"
+                             "离线测试里带上文更好，但用户真实使用实测更差——真实输入是"
+                             "含误识别的 ASR 输出，上下文会把错误传播下去。"
+                             "详见 BENCHMARK_RESULTS.md 13.6")
+    parser.add_argument("--translate-style", default="plain",
+                        choices=("plain", "instruction", "completion"),
+                        help="提示词风格；plain 是用户实测认可的基线")
     parser.add_argument("--translate-threads", type=int, default=4,
                         help="翻译线程数（指令模型用 torch，这个值直接影响其速度）")
     parser.add_argument("--log", type=Path, default=None,

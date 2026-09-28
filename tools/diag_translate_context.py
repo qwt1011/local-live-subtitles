@@ -34,13 +34,25 @@ def main():
     parser.add_argument("--context-size", type=int, default=2,
                         help="带上文时看前几句（原文+译文）")
     parser.add_argument("--from-reference", type=Path, default=None,
-                        help="改成从参考文本读句子（按标点切分）")
-    parser.add_argument("--style", default="instruction", choices=("instruction", "completion"),
-                        help="带上文的写法；completion 是'原文→译文'接龙（0.5B 会崩）")
+                        help="从参考文本读句子（干净文本，**不代表真实输入**）")
+    parser.add_argument("--from-session", type=Path, default=None,
+                        help="从真实会话 JSONL 读原文定稿——这才是真正喂给翻译的输入")
+    parser.add_argument("--style", default="instruction", choices=("plain", "instruction", "completion"),
+                        help="带上文时用哪种写法")
     args = parser.parse_args()
 
     sentences = SAMPLE
-    if args.from_reference:
+    if args.from_session:
+        import json
+        rows = [json.loads(line) for line in args.from_session.read_text(encoding="utf-8").splitlines()
+                if line.strip()]
+        sentences = [
+            row["text"] for row in rows
+            if row.get("is_final") and row.get("text")
+            and not (row.get("detail") or {}).get("translation")
+        ]
+        print(f"从会话读取到 {len(sentences)} 句 ASR 原文定稿（真实输入，含误识别）")
+    elif args.from_reference:
         raw = args.from_reference.read_text(encoding="utf-8")
         sentences = [part.strip() for part in raw.replace("\n", " ").split("。") if part.strip()]
         sentences = [f"{part}。" for part in sentences]
@@ -55,33 +67,38 @@ def main():
     print(f"就绪（{time.perf_counter() - began:.1f}s）\n")
 
     history = []          # 带上文那一路的"已译上文"
-    print(f"{'原文':<32} {'孤立翻译':<28} {'带上文翻译':<28} 上文?")
-    print("-" * 120)
+    print(f"{'原文（ASR 实际输出）':<30} | {'A plain 无上文':<26} | "
+          f"{'B instruction 无上文':<26} | {'C instruction 带上文'}")
+    print("-" * 130)
 
-    alone_total = 0.0
-    context_total = 0.0
-
+    totals = {"A": 0.0, "B": 0.0, "C": 0.0}
     for sentence in sentences:
         started = time.perf_counter()
-        alone = translator.translate(sentence, source="ja", target="zh")
-        alone_total += time.perf_counter() - started
+        a = translator.translate(sentence, source="ja", target="zh", style="plain")
+        totals["A"] += time.perf_counter() - started
+
+        started = time.perf_counter()
+        b = translator.translate(sentence, source="ja", target="zh", style="instruction")
+        totals["B"] += time.perf_counter() - started
 
         context = history[-args.context_size:] if args.context_size > 0 else None
         started = time.perf_counter()
-        with_context = translator.translate(sentence, source="ja", target="zh",
-                                            context=context, style=args.style)
-        context_total += time.perf_counter() - started
+        c = translator.translate(sentence, source="ja", target="zh",
+                                 context=context, style=args.style)
+        totals["C"] += time.perf_counter() - started
 
-        used = len(context) if context else 0
-        print(f"{sentence:<32} {alone:<28} {with_context:<28} {used}")
+        print(f"{sentence:<30} | {a:<26} | {b:<26} | {c}")
 
-        # 带上文那一路的译文进入历史，保证两路的上下文一致
-        history.append({"original": sentence, "translation": with_context})
+        # 只有 C 那一路有上文，用它的译文维护历史
+        history.append({"original": sentence, "translation": c})
 
     print()
-    print(f"孤立翻译总耗时 {alone_total:.2f}s，带上文总耗时 {context_total:.2f}s"
-          f"（多出 {context_total - alone_total:+.2f}s）")
-    print("说明：质量要人来判断，这里只把两种结果并排摆出来。")
+    print(f"耗时  A(plain/无上文) {totals['A']:.2f}s   "
+          f"B(instruction/无上文) {totals['B']:.2f}s   "
+          f"C(instruction/带上文) {totals['C']:.2f}s")
+    print()
+    print("A vs B 隔离出**提示词改动**的影响；B vs C 隔离出**上下文**的影响。")
+    print("质量由人来判断——尤其注意 C 是否出现'抄上一句'或'输出日语'。")
 
 
 if __name__ == "__main__":

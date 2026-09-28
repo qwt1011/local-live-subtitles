@@ -35,18 +35,24 @@ DEFAULT_MODEL = "Qwen2.5-0.5B-Instruct"
 
 LANGUAGE_NAMES = {"ja": "日语", "en": "英语", "zh": "中文"}
 
-SYSTEM_PROMPT = "你是一个字幕翻译引擎。"
+SYSTEM_PROMPT = "把日语翻译成中文，只输出译文。"
 
-# 提示词保持简短，但**必须带上文**。
+# 三种提示词风格。**默认 plain（不带上下文）**——这个默认值是用户实测定的：
+# 加上下文之后真实使用反而更差，见 BENCHMARK_RESULTS.md 13.6。
 #
-# 孤立翻译是字幕翻译最大的质量杀手：日语大量省略主语，
-# 「にしても」「お兄さん」「〜なんて」这类表达的含义完全取决于前一句。
-# 格式用「上文 …… 本次 …… →」，并且上文里同时给**原文和译文**：
-# 只给原文的话模型会想自己再翻一遍上文，容易把上文也输出出来；
-# 给出译文等于同时锚定了用词（お兄さん 是否一直译成"哥哥"）。
+# 为什么"离线看着更好、真实使用更差"：离线 A/B 的句子来自**干净参考文本**，
+# 而真实运行里喂进来的是 **ASR 输出**（含误识别与碎片）。上下文在这种输入上会
+# **把错误传播下去**：前一句听错，后面几句全被带偏；孤立翻译至少每句独立。
+#
+# - plain（默认）：最初的极简写法，不带上下文，逐字保留。
+# - instruction：上文放进 system prompt 当背景说明。
+# - completion：上文写成「原文 → 译文」范例让模型接着写。
+#   **0.5B 会当成接龙**：实测出现"抄上一句译文"与"直接输出日语"两种崩法。
 CONTEXT_HEADER = "上文："
 TURN_HEADER = "本次："
 ARROW = "→"
+
+STYLES = ("plain", "instruction", "completion")
 
 
 def _context_lines(context, arrow=ARROW):
@@ -60,17 +66,12 @@ def _context_lines(context, arrow=ARROW):
     return lines
 
 
-def build_prompt_parts(text, source_name, target_name, context=None, style="instruction"):
-    """返回 (system_prompt, user_message)。
+def build_prompt_parts(text, source_name, target_name, context=None, style="plain"):
+    """返回 (system_prompt, user_message)。"""
+    if style == "plain":
+        # 用户实测认可的基线，逐字保留。
+        return SYSTEM_PROMPT, f"把下面的{source_name}台词翻译成{target_name}。\n\n{text}"
 
-    两种带上文的写法，实测差别很大（见 BENCHMARK_RESULTS.md 12.9）：
-
-    - ``completion``：把上文写成「原文 → 译文」的范例，最后留一句「本次：xxx →」
-      让模型接着写。**0.5B 会把这个当成接龙**：要么直接抄上一句的译文，
-      要么顺着范例继续输出日语。已实测到两种崩法，不能用于小模型。
-    - ``instruction``（默认）：上文放进 system prompt 当作背景说明，
-      user 消息里只有待翻译的句子。0.5B 不再有"续写范例"的错觉。
-    """
     lines = _context_lines(context)
 
     if style == "completion":
@@ -155,7 +156,7 @@ class InstructTranslator:
         # 与 Argos 那次 15 秒懒加载同类的坑，先付掉。
         self.translate("こんにちは。", source="ja", target="zh")
 
-    def _build_prompt(self, text, source, target, context=None, style="instruction"):
+    def _build_prompt(self, text, source, target, context=None, style="plain"):
         source_name = LANGUAGE_NAMES.get(source, source)
         target_name = LANGUAGE_NAMES.get(target, target)
         system, user = build_prompt_parts(text, source_name, target_name, context, style)
@@ -206,7 +207,7 @@ class InstructTranslator:
         new_tokens = generated[0][inputs["input_ids"].shape[1]:]
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
 
-    def translate(self, text, source="ja", target="zh", context=None, style="instruction"):
+    def translate(self, text, source="ja", target="zh", context=None, style="plain"):
         text = (text or "").strip()
         if not text:
             return ""
