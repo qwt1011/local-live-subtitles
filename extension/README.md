@@ -42,8 +42,29 @@
 **确认版本号**：`chrome://extensions` 的扩展卡片上直接写着版本。
 现在应该是 **0.2.0**；如果还是 `0.1.0`，说明第 1 步没成功。
 
-**排查采集/连接问题**：`chrome://extensions` → 本扩展卡片 → 「检查视图」里会有
-`offscreen.html`，点进去看它的 Console——PCM 采集和 WebSocket 都在那里。
+## 三个 Console 分别在哪里（排查时最常找错）
+
+扩展由三块独立运行的部分组成，**各自的 console 不在一起**：
+
+| 想看的日志 | 在哪看 | 会看到什么 |
+|---|---|---|
+| content script（页面渲染） | YouTube 页面按 F12 → Console | `[本地字幕] content script 已就绪（v0.2.0）`、`定稿:`、`译文:` |
+| **service worker（路由/取流）** | `chrome://extensions` → 本扩展卡片 → 点「Service Worker」 | `[本地字幕] 已取得标签页音频流…`、上报 `操作失败：…` |
+| offscreen（PCM 采集 + WebSocket） | 同卡片 → 「检查视图」里的 `offscreen.html` | WebSocket 连接/断开、采集失败原因 |
+
+**popup 自己的 console**：在扩展图标上右键 →「检查弹出内容」。
+
+## 「检查本地服务」显示未连接时
+
+先看几点：
+
+1. **popup 的探测已经独立于采集**（v0.2.0 起）。早期版本依赖 offscreen 写的状态，
+   而 offscreen 只有点过「开始捕获」后才存在，所以**服务明明在跑也会显示"未连接"**——
+   那是 popup 的 bug，不是服务的问题。现在打开 popup 就会直接连一次服务探测。
+2. 服务要真的在跑，并且是**流式服务**（`app/server.py`，端口 **8766**），
+   不是旧的 HTTP 服务（`local_service.py`，端口 8765）。
+3. 如果 popup 仍显示未连接，但你想先确认扩展能不能收到字幕：**直接点「开始捕获」**。
+   popup 的状态显示坏了不代表采集链路坏了。
 
 ## 自动化测试能覆盖什么
 
@@ -51,12 +72,14 @@
 
 ```powershell
 node tests\test_extension_logic.js   # 24 项：PCM 分帧、revision 单调性、全屏挂载点、显示模式
-node tests\test_ws_protocol.js       # 9 项：扩展的帧格式与服务端协议是否对得上（需服务在跑）
+node tests\test_ws_protocol.js       #  9 项：扩展的帧格式与服务端协议是否对得上（需服务在跑）
+node tests\test_probe_service.js     #  4 项：popup 的服务探测能独立工作（需服务在跑）
 ```
 
-这两个测试是刻意做的：**"PCM 掉了一帧""revision 回跳一次""全屏挂载点选错"在浏览器里
-都只表现为「字幕偶尔怪一下」，几乎无法复现**；在这里是确定的失败。
-（写这套测试时它确实抓到了一个错误——虽然那次错的是测试自己的算术。）
+这些测试是刻意做的：**"PCM 掉了一帧""revision 回跳一次""全屏挂载点选错"
+"popup 探测依赖采集状态"在浏览器里都只表现为「偶尔怪一下 / 一直显示未连接」，几乎无法复现**；
+在这里是确定的失败。写这套测试时它确实抓到过两个真问题——
+一个是测试自己的算术错，另一个是服务端 `ping` 回复漏了 `engine`/`model` 字段。
 
 ## 只能靠真机验收的清单
 

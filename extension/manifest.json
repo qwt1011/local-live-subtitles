@@ -5,7 +5,11 @@
   "description": "本地日语/英语实时中文字幕（音频不出本机）",
   "minimum_chrome_version": "116",
   "permissions": ["activeTab", "storage", "tabCapture", "offscreen"],
-  "host_permissions": ["https://www.youtube.com/*"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "http://127.0.0.1:8766/*",
+    "http://localhost:8766/*"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:8766 http://127.0.0.1:8766 ws://localhost:8766"
   },

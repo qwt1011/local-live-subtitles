@@ -301,8 +301,15 @@ async def handle(websocket, args, engine, translator=None):
                     "sample_rate": SAMPLE_RATE,
                 }, ensure_ascii=False))
             elif kind == "ping":
+                # 必须带上 engine/model：popup 的"检查本地服务"就是靠这条回复显示引擎信息的
+                # （tests/test_probe_service.js 会检查这一点——第一版漏了，popup 显示成"（? / ?）"）。
                 await websocket.send(json.dumps(
-                    {"type": "status", "state": "ok", **session.summary()},
+                    {"type": "status", "state": "ok",
+                     "engine": args.engine, "model": args.model,
+                     "language": args.language,
+                     "translate": translator is not None,
+                     "sample_rate": SAMPLE_RATE,
+                     **session.summary()},
                     ensure_ascii=False))
             elif kind == "stop":
                 break

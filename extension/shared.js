@@ -146,6 +146,58 @@
   const MODES = ['original', 'translation', 'bilingual'];
 
   /**
+   * 探测本地服务是否在线：连一次 WebSocket，发一条 ping，等 status 回复。
+   *
+   * **为什么不复用 offscreen 写的状态**：offscreen 文档只有在点了「开始捕获」之后
+   * 才会被创建，所以在那之前 `captureStatus` 根本不存在——popup 于是永远显示
+   * "未连接本地服务"，哪怕服务跑得好好的。这就是"检查本地服务"按钮一开始没用的原因：
+   * 探测必须独立于采集。
+   *
+   * 返回服务端的 status 对象；连不上或超时返回 null。
+   */
+  function probeService(url = WS_URL, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+      let socket = null;
+      let settled = false;
+      let timer = null;
+
+      const finish = (value) => {
+        if (settled) return;      // onerror 之后 onclose 还会再来一次
+        settled = true;
+        if (timer) clearTimeout(timer);
+        try {
+          if (socket && socket.readyState <= 1) socket.close();
+        } catch (error) { /* 关闭失败无所谓 */ }
+        resolve(value);
+      };
+
+      timer = setTimeout(() => finish(null), timeoutMs);
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        finish(null);
+        return;
+      }
+
+      socket.onopen = () => {
+        try {
+          socket.send(JSON.stringify({ type: 'ping' }));
+        } catch (error) {
+          finish(null);
+        }
+      };
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && data.type === 'status') finish(data);
+        } catch (error) { /* 非 JSON 直接忽略 */ }
+      };
+      socket.onerror = () => finish(null);
+      socket.onclose = () => finish(null);
+    });
+  }
+
+  /**
    * 选择字幕覆盖层的挂载点。
    *
    * 必须挂到 fullscreen element 的后代里：YouTube 进入全屏后，只有该元素及其后代参与渲染，
@@ -181,5 +233,6 @@
     SubtitleState,
     composeLine,
     pickMountParent,
+    probeService,
   };
 });
