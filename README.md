@@ -109,8 +109,8 @@ cd C:\text\实验\asmr_transcription
     --model models\Qwen2.5-0.5B-Instruct `
     --output_dir models\Qwen2.5-0.5B-Instruct-ct2-int8 --quantization int8 --force
 
-# 3) 标定
-& $py -u tools\diag_translate_cost.py --engine instruct --count 8
+# 3) 并排对比"孤立翻译"与"带上文翻译"
+& $py -u tools\diag_translate_context.py --context-size 2 --style instruction
 ```
 
 **为什么不用 NLLB**：NLLB 依赖的 `target_prefix` 语言标记机制在 CTranslate2 4.8.1 下
@@ -118,8 +118,22 @@ cd C:\text\实验\asmr_transcription
 而同一个 CT2 转出来的 Marian 模型工作正常。完整排查过程见 `BENCHMARK_RESULTS.md` 第 12 节。
 指令模型用自然语言 prompt 表达翻译意图，绕开了这个机制。
 
-**质量**：0.5B 的固有水平——够看懂大意，不保证精致。要更好可换 1.5B，
-只需改 `app/models_catalog.py` 与 `app/translate/factory.py` 的目录名，管线不用动。
+**必须带上文**（`--translate-context`，默认 2）。孤立翻译是字幕质量最大的杀手：
+日语大量省略主语，「にしても」「お兄さん」「〜なんて」的含义完全取决于前一句。
+服务端会把前几句的**原文 + 译文**放进 system prompt 当背景说明。
+
+注意两种写法的差别很大，`app/translate/instruct_local.py` 里都保留着：
+写成「原文 → 译文」范例让模型接着写（`style=completion`）会被 0.5B 当成**接龙**，
+实测出现"抄上一句译文"和"直接输出日语"两种崩法；改成背景说明（`style=instruction`，默认）才正常。
+**小模型会把范例当成续写模式**，这条对以后写提示词都适用。
+
+**质量的真实上限**：0.5B + 上下文基本就是这台机器的极限。
+实测 `cpu_ratio` 已到 **0.689**，再换 1.5B 约需 3 倍翻译算力，会**超过 1.0 即跑不动**
+（详见 `BENCHMARK_RESULTS.md` 13.4）。想继续提升只能腾预算或改预期，
+不要指望"换个更大的模型"就行。
+
+**另一部分误差来自识别**：例如 `それじゃあ少しだけお話ししましょうか` 被识别成
+`それじゃあ短いデータと行きましょうか`，这种句子翻译再准也没用——那是识别问题。
 
 ## 旧的 HTTP 服务（将被 M4 替换）
 
