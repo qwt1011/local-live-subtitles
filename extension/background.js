@@ -51,18 +51,34 @@ async function startCapture(tabId, language) {
   await stopCapture();
   await setState({ [SESSION_KEYS.activeTabId]: tabId, [SESSION_KEYS.capturing]: true });
 
-  // offscreen 文档可能已经存在（上一次会话留下的），重复创建会抛错。
-  const has = await chrome.offscreen.hasDocument().catch(() => false);
-  if (!has) {
+  await ensureOffscreenDocument();
+
+  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+  console.log('[本地字幕] 已取得标签页音频流，交给 offscreen');
+  await chrome.runtime.sendMessage({ type: 'offscreen-start', streamId, language }).catch(() => {});
+}
+
+/**
+ * 确保 offscreen 文档存在。
+ *
+ * 优先用 hasDocument()（Chrome 116+）；老版本没有这个 API，
+ * 就直接尝试创建并吞掉"已存在"的错误，而不是让整个流程失败。
+ */
+async function ensureOffscreenDocument() {
+  if (typeof chrome.offscreen.hasDocument === 'function') {
+    const has = await chrome.offscreen.hasDocument().catch(() => false);
+    if (has) return;
+  }
+  try {
     await chrome.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['USER_MEDIA'],
       justification: '捕获标签页音频用于本地字幕',
     });
+  } catch (error) {
+    // 已经存在时 createDocument 会抛错，这是正常情况，不是失败。
+    if (!String(error).includes('Only a single offscreen')) throw error;
   }
-
-  const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-  await chrome.runtime.sendMessage({ type: 'offscreen-start', streamId, language }).catch(() => {});
 }
 
 async function stopCapture() {

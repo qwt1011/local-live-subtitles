@@ -62,6 +62,7 @@
     overlay.id = OVERLAY_ID;
 
     const style = document.createElement('style');
+    style.dataset.lls = '1';   // teardown() 靠这个标记找回并清掉旧样式
     style.textContent = STYLE;
     document.documentElement.appendChild(style);
 
@@ -187,14 +188,41 @@
   function handleMessage(message) {
     if (!message) return;
     if (message.type === 'subtitle') {
-      if (state.apply(message.payload)) render();
+      if (state.apply(message.payload)) {
+        if (message.payload.is_final && !message.payload.translation) {
+          console.log('[本地字幕] 定稿:', message.payload.text);
+        }
+        if (message.payload.translation) {
+          console.log('[本地字幕] 译文:', message.payload.translation);
+        }
+        render();
+      }
     } else if (message.type === 'status') {
       // 连接状态只在 popup 里展示，覆盖层不显示，避免打扰观看。
+      if (message.status && message.status.error) {
+        console.warn('[本地字幕] 采集异常:', message.status.error);
+      }
     }
   }
 
+  /**
+   * 重新注入时，把上一版留下的覆盖层和样式清掉再重建。
+   *
+   * 原来这里是 `if (已有覆盖层) return;`——那样在"改了扩展代码后重载扩展"时，
+   * 新注入的 content script 会因为发现旧覆盖层而**直接退出**，
+   * 既不注册消息监听也不重新渲染，表现就是"改了代码但页面毫无反应"，
+   * 而唯一的解法（刷新页面）看起来又像是没生效。这是开发期最容易踩的坑。
+   */
+  function teardown() {
+    const existing = document.getElementById(OVERLAY_ID);
+    if (existing) existing.remove();
+    for (const node of document.querySelectorAll('style[data-lls]')) node.remove();
+    slots.length = 0;
+    state.reset();
+  }
+
   function init() {
-    if (document.getElementById(OVERLAY_ID)) return; // 避免重复注入
+    teardown();
     buildOverlay();
 
     chrome.storage.local.get(
@@ -223,6 +251,7 @@
     document.addEventListener('fullscreenchange', mount, true);
     document.addEventListener('webkitfullscreenchange', mount, true);
     chrome.runtime.onMessage.addListener(handleMessage);
+    console.log('[本地字幕] content script 已就绪（v0.2.0）');
   }
 
   init();
