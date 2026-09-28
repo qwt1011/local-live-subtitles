@@ -57,8 +57,14 @@ $py = "C:\text\.venv\Scripts\python.exe"
 
 ## 流式服务（M3）
 
+**推荐：双击 `启动字幕服务.bat`。** 它先做预检（模型是否就绪、端口是否被占用），
+再把服务拉起来。注意 `.bat` 本身是纯 ASCII 的薄壳，中文提示都在
+`tools/run_service.py` 里——cmd.exe 按当前代码页逐字节解析批处理，
+UTF-8 中文会把语句拆碎（实测会把 `echo` 的中文当成命令去执行）。
+
 ```powershell
-# 必须用 -m 运行（app.server 里有相对导入）
+# 等价的手动命令。必须先 cd 到项目目录，否则报 No module named 'app'
+cd C:\text\实验\asmr_transcription
 & $py -u -m app.server --engine sensevoice --model sensevoice-2024 `
     --translate --translate-engine instruct --log runs\live.jsonl
 ```
@@ -72,6 +78,17 @@ $py = "C:\text\.venv\Scripts\python.exe"
 所以原文先显示、中文稍后原地补上，不会闪烁。实测中文出现在说完后 **0.67–0.88 秒**。
 
 `--log` 写出的 JSONL 与离线台架同格式，可以直接用 `tools/metrics.py` 分析真实会话。
+
+### 服务端日志能直接看出问题在哪一层
+
+扩展点了「开始捕获」后，服务端窗口会打印：
+
+| 日志 | 含义 |
+|---|---|
+| `客户端已连接` | 扩展连上服务了（popup 探测也打这条，但它**不会**打下面那条） |
+| `采集开始：language=ja` | 扩展真的开始推音频了 |
+| `警告：已开始采集，但 3 秒内没有收到任何音频` | 问题在 offscreen / AudioWorklet |
+| 什么都没有 | 消息没到服务端，去看 service worker 的 Console |
 
 验证：
 

@@ -2,22 +2,32 @@
 
 ## 装什么
 
-1. 启动本地流式服务（**必须用 `-m`**，`app/server.py` 里有相对导入）：
-
-   ```powershell
-   # 只出原文
-   C:\text\.venv\Scripts\python.exe -u -m app.server --engine sensevoice --model sensevoice-2024
-
-   # 原文 + 中文（推荐）
-   C:\text\.venv\Scripts\python.exe -u -m app.server --engine sensevoice --model sensevoice-2024 --translate
-   ```
+1. 启动本地流式服务 —— **双击项目根目录的 `启动字幕服务.bat`**。
+   它会先检查模型和端口，再启动，并且自己处理好了"必须在项目目录下运行"这件事。
 
    看到 `流式字幕服务已启动：ws://127.0.0.1:8766` 才算好。
+
+   > 手动启动的话必须**先 cd 到项目目录**，否则会报 `No module named 'app'`：
+   > ```powershell
+   > cd C:\text\实验\asmr_transcription
+   > C:\text\.venv\Scripts\python.exe -u -m app.server --engine sensevoice --model sensevoice-2024 --translate
+   > ```
 
 2. Chrome/Edge 打开 `chrome://extensions` → 打开「开发者模式」→「加载已解压的扩展程序」→
    选这个 `extension` 目录。
 
 3. 打开任意 YouTube 视频 → 点扩展图标 → 选语言（日语/英语）→「开始捕获当前标签页」。
+
+## 看服务端窗口就知道卡在哪一层
+
+点了「开始捕获」后，对照服务端窗口的输出：
+
+| 服务端打印 | 说明 | 该去查什么 |
+|---|---|---|
+| 什么都没有 | 消息没到服务端 | service worker 的 Console（`[本地字幕] 已取得标签页音频流`） |
+| `客户端已连接` | 连上了；若只有这条没有下一条，说明只是 popup 在探测 | 是不是没点「开始捕获」 |
+| `采集开始：language=ja` | 扩展真的在推音频了 | — |
+| `警告：已开始采集，但 3 秒内没有收到任何音频` | 连上了但没音频 | offscreen 的 Console，看 AudioWorklet |
 
 ## ⚠ 改了扩展代码之后，怎么让它真的生效
 
