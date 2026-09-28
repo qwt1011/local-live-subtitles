@@ -143,6 +143,82 @@
     }
   }
 
+  /**
+   * 一个**永不抛错**的键值存储封装。
+   *
+   * 起因是一个真实故障：offscreen 里的 `chrome.storage.session.set(...)`
+   * 抛了 `TypeError: Cannot read properties of undefined (reading 'session')`，
+   * 而它是在状态上报路径上——**状态上报把整个采集启动流程带崩了**。
+   * 遥测不该有能力弄坏被测的功能，所以这里：
+   *
+   * - 优先 `storage.session`；不可用则退回 `storage.local`；再不可用则退回内存。
+   * - 任何一步失败都只是记一条 warning，绝不向调用方抛异常。
+   * - 把实际用的是哪一种报出来，方便定位"到底哪个 API 在某个上下文里没有"。
+   */
+  function createStore(label) {
+    const area = (() => {
+      try {
+        if (typeof chrome === 'undefined' || !chrome.storage) return null;
+        if (chrome.storage.session) return { kind: 'session', impl: chrome.storage.session };
+        if (chrome.storage.local) return { kind: 'local', impl: chrome.storage.local };
+      } catch (error) {
+        /* 下面统一按"没有可用存储"处理 */
+      }
+      return null;
+    })();
+
+    const memory = new Map();
+    const where = area ? area.kind : 'memory';
+
+    if (!area) {
+      console.warn(`[本地字幕] ${label}: chrome.storage 不可用，改用内存存储`
+        + '（状态在 service worker 回收后会丢）');
+    } else if (area.kind !== 'session') {
+      console.warn(`[本地字幕] ${label}: storage.session 不可用，退回 ${area.kind}`);
+    }
+    console.log(`[本地字幕] ${label}: 存储 = ${where}`);
+
+    return {
+      where,
+      async get(keys) {
+        const result = {};
+        const list = Array.isArray(keys) ? keys : Object.keys(keys || {});
+        try {
+          if (area) {
+            const got = await area.impl.get(list);
+            return got || {};
+          }
+        } catch (error) {
+          console.warn(`[本地字幕] ${label}: 读取失败，改用内存`, error);
+        }
+        for (const key of list) if (memory.has(key)) result[key] = memory.get(key);
+        return result;
+      },
+      async set(patch) {
+        for (const [key, value] of Object.entries(patch || {})) memory.set(key, value);
+        try {
+          if (area) await area.impl.set(patch);
+        } catch (error) {
+          console.warn(`[本地字幕] ${label}: 写入失败`, error);
+        }
+      },
+    };
+  }
+
+  /** 各上下文启动时打一行环境自检，用来确认到底哪个 API 缺失。 */
+  function describeEnvironment(label) {
+    const info = {
+      hasChrome: typeof chrome !== 'undefined',
+      hasRuntime: typeof chrome !== 'undefined' && Boolean(chrome.runtime),
+      hasStorage: typeof chrome !== 'undefined' && Boolean(chrome.storage),
+      hasSession: typeof chrome !== 'undefined' && Boolean(chrome.storage && chrome.storage.session),
+      hasOffscreen: typeof chrome !== 'undefined' && Boolean(chrome.offscreen),
+      hasTabCapture: typeof chrome !== 'undefined' && Boolean(chrome.tabCapture),
+    };
+    console.log(`[本地字幕] ${label} 环境自检:`, info);
+    return info;
+  }
+
   const MODES = ['original', 'translation', 'bilingual'];
 
   /**
@@ -234,5 +310,7 @@
     composeLine,
     pickMountParent,
     probeService,
+    createStore,
+    describeEnvironment,
   };
 });

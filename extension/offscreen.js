@@ -7,6 +7,10 @@
 
 const Shared = self.SubtitleShared;
 
+// 状态上报用永不抛错的封装：上报失败绝不能把采集启动带崩。
+const store = Shared.createStore('offscreen');
+Shared.describeEnvironment('offscreen');
+
 let socket = null;
 let audioContext = null;
 let mediaStream = null;
@@ -18,19 +22,28 @@ let connected = false;
 let sentFrames = 0;
 let sentSamples = 0;
 
+/**
+ * 上报状态。**整个函数都不能抛异常**——它是遥测，不该有能力弄坏采集。
+ * 之前正是它内部的 chrome.storage.session 访问抛错，把启动流程整个带崩了。
+ */
 function publishStatus(patch) {
-  // 状态放在 session 存储里：service worker 随时可能被回收，
-  // 内存变量会丢，popup 就会显示成"未连接"。
-  const payload = {
-    connected,
-    language: sessionLanguage,
-    sentFrames,
-    audioSeconds: Math.round((sentSamples / Shared.TARGET_SAMPLE_RATE) * 10) / 10,
-    updatedAt: Date.now(),
-    ...patch,
-  };
-  chrome.storage.session.set({ captureStatus: payload }).catch(() => {});
-  chrome.runtime.sendMessage({ type: 'capture-status', status: payload }).catch(() => {});
+  try {
+    const payload = {
+      connected,
+      language: sessionLanguage,
+      sentFrames,
+      audioSeconds: Math.round((sentSamples / Shared.TARGET_SAMPLE_RATE) * 10) / 10,
+      updatedAt: Date.now(),
+      ...patch,
+    };
+    store.set({ captureStatus: payload });
+    chrome.runtime.sendMessage({ type: 'capture-status', status: payload }).catch(() => {});
+  } catch (error) {
+    // 连日志都要防一手：状态上报失败不影响采集。
+    try {
+      console.warn('[本地字幕] 上报状态失败（已忽略）：', error);
+    } catch (ignored) { /* 什么都不做 */ }
+  }
 }
 
 /**

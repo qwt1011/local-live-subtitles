@@ -16,6 +16,7 @@
  */
 
 const Shared = self.SubtitleShared;
+const store = Shared.createStore('popup');
 
 const enabledInput = document.querySelector('#enabled');
 const languageInput = document.querySelector('#language');
@@ -32,7 +33,7 @@ let lastError = '';      // 最近一次操作的失败原因，由 render() 一
 const DEFAULTS = { enabled: true, language: 'ja', mode: 'bilingual' };
 
 function render() {
-  chrome.storage.session.get(['captureStatus']).then((stored) => {
+  store.get(['captureStatus']).then((stored) => {
     const capture = stored.captureStatus;
     const lines = [];
 
@@ -91,7 +92,7 @@ chrome.storage.local.get(DEFAULTS, (value) => {
   modeInput.value = value.mode;
 });
 
-chrome.storage.session.get(['capturing']).then((stored) => {
+store.get(['capturing']).then((stored) => {
   capturing = Boolean(stored.capturing);
   renderCaptureButton();
 });
@@ -124,7 +125,7 @@ captureButton.addEventListener('click', async () => {
   if (!starting) {
     capturing = false;
     renderCaptureButton();
-    await chrome.storage.session.set({ capturing });
+    await store.set({ capturing });
     await chrome.runtime.sendMessage({ type: 'stop-capture' })
       .catch((error) => ({ ok: false, error: String(error) }));
     render();
@@ -155,7 +156,7 @@ captureButton.addEventListener('click', async () => {
 
   capturing = true;
   renderCaptureButton();
-  await chrome.storage.session.set({ capturing });
+  await store.set({ capturing });
   setTimeout(runProbe, 600);
   setTimeout(render, 900);
 });

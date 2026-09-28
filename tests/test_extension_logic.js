@@ -240,6 +240,97 @@ test('标准属性优先于 webkit 属性', () => {
   assert.strictEqual(Shared.pickMountParent(doc).tag, 'standard');
 });
 
+console.log('\ncreateStore（永不抛错的存储封装）');
+
+function fakeArea(backing) {
+  return {
+    async get(keys) {
+      const out = {};
+      for (const key of keys) if (key in backing) out[key] = backing[key];
+      return out;
+    },
+    async set(patch) { Object.assign(backing, patch); },
+  };
+}
+
+test('storage.session 可用时用它', () => {
+  global.chrome = { storage: { session: fakeArea({}) } };
+  const store = Shared.createStore('t');
+  assert.strictEqual(store.where, 'session');
+  delete global.chrome;
+});
+
+test('session 不可用时退回 local', () => {
+  global.chrome = { storage: { local: fakeArea({}) } };
+  const store = Shared.createStore('t');
+  assert.strictEqual(store.where, 'local');
+  delete global.chrome;
+});
+
+test('完全没有 chrome.storage 时退回内存，且不抛异常', () => {
+  global.chrome = {};
+  const store = Shared.createStore('t');
+  assert.strictEqual(store.where, 'memory');
+  delete global.chrome;
+});
+
+test('访问 chrome.storage 本身抛异常时也不能炸（就是真实故障的形态）', () => {
+  Object.defineProperty(global, 'chrome', {
+    configurable: true,
+    get() { throw new TypeError("Cannot read properties of undefined (reading 'session')"); },
+  });
+  let store;
+  assert.doesNotThrow(() => { store = Shared.createStore('t'); });
+  assert.strictEqual(store.where, 'memory');
+  delete global.chrome;
+});
+
+test('get/set 往返正确', async () => {
+  const backing = {};
+  global.chrome = { storage: { session: fakeArea(backing) } };
+  const store = Shared.createStore('t');
+  await store.set({ a: 1, b: 'x' });
+  assert.deepStrictEqual(await store.get(['a', 'b']), { a: 1, b: 'x' });
+  delete global.chrome;
+});
+
+test('底层 set 抛异常时只是警告，不把异常抛给调用方', async () => {
+  // 状态上报路径上的任何失败都不该影响采集——这正是之前把启动带崩的地方。
+  global.chrome = {
+    storage: {
+      session: {
+        async get() { return {}; },
+        async set() { throw new Error('quota exceeded'); },
+      },
+    },
+  };
+  const store = Shared.createStore('t');
+  await assert.doesNotReject(() => store.set({ a: 1 }));
+  delete global.chrome;
+});
+
+test('底层 get 抛异常时返回空对象而不是抛出', async () => {
+  global.chrome = {
+    storage: {
+      session: {
+        async get() { throw new Error('boom'); },
+        async set() {},
+      },
+    },
+  };
+  const store = Shared.createStore('t');
+  assert.deepStrictEqual(await store.get(['a']), {});
+  delete global.chrome;
+});
+
+test('内存兜底时 set 之后能 get 回来', async () => {
+  global.chrome = {};
+  const store = Shared.createStore('t');
+  await store.set({ k: 'v' });
+  assert.deepStrictEqual(await store.get(['k']), { k: 'v' });
+  delete global.chrome;
+});
+
 console.log('\n常量');
 
 test('帧长与服务端约定一致（100ms @16k）', () => {

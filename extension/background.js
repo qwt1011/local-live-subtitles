@@ -14,14 +14,23 @@
  *    这正是用户实际遇到的现象，所以这里用 sendToOffscreen() 带重试。
  */
 
+// service worker 不会自动加载 shared.js（manifest 的 content_scripts 只管页面），
+// 必须显式 importScripts，否则下面 self.SubtitleShared 是 undefined。
+// popup.html / offscreen.html 各自用 <script src="shared.js"> 加载，双向都要照顾到。
+importScripts('shared.js');
+
+const Shared = self.SubtitleShared;
+const store = Shared.createStore('background');
+Shared.describeEnvironment('background');
+
 const SESSION_KEYS = { activeTabId: 'activeTabId', capturing: 'capturing' };
 
 async function setState(patch) {
-  await chrome.storage.session.set(patch);
+  await store.set(patch);
 }
 
 async function getState() {
-  return chrome.storage.session.get([SESSION_KEYS.activeTabId, SESSION_KEYS.capturing]);
+  return store.get([SESSION_KEYS.activeTabId, SESSION_KEYS.capturing]);
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
