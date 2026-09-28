@@ -99,13 +99,22 @@ async def run(args):
         task.cancel()
 
     elapsed = time.perf_counter() - started
-    finals = [event for event in events if event["is_final"] and event["text"]]
-    partials = [event for event in events if not event["is_final"]]
+    # 译文事件也是 is_final=True（它靠更高的 revision 覆盖原句），
+    # 统计"原文定稿延迟"时必须排除它们，否则数字会被译文拖高一大截，
+    # 看起来像识别变慢了——实际原文路径完全没变。
+    def is_translation(event):
+        return bool((event.get("detail") or {}).get("translation"))
+
+    originals = [event for event in events if not is_translation(event)]
+    finals = [event for event in originals if event["is_final"] and event["text"]]
+    translations = [event for event in events if is_translation(event)]
+    partials = [event for event in originals if not event["is_final"]]
     print()
     print("---- 结果 ----")
-    print(f"wall_seconds={elapsed:.2f} events={len(events)} partials={len(partials)} finals={len(finals)}")
+    print(f"wall_seconds={elapsed:.2f} events={len(events)} "
+          f"partials={len(partials)} finals={len(finals)} translations={len(translations)}")
 
-    for label, group in (("partial", partials), ("final", finals)):
+    for label, group in (("partial", partials), ("final", finals), ("译文", translations)):
         if group:
             latencies = sorted(event["latency"] for event in group)
             print(f"{label:8s} latency p50={latencies[len(latencies) // 2]:.3f} "

@@ -35,12 +35,66 @@ DEFAULT_MODEL = "Qwen2.5-0.5B-Instruct"
 
 LANGUAGE_NAMES = {"ja": "日语", "en": "英语", "zh": "中文"}
 
-SYSTEM_PROMPT = "把日语翻译成中文，只输出译文。"
+SYSTEM_PROMPT = "你是一个字幕翻译引擎。"
 
-# 提示词刻意保持简短。实测对比过三种写法（见 BENCHMARK_RESULTS.md 12.8）：
-# 给 0.5B 加"逐字直译，不添加原文没有的信息"这类约束反而更差
-# （把「コンビニ」译成"寄过去"），而最简写法正确译成了"便利店"。
-USER_TEMPLATE = "把下面的{source}台词翻译成{target}。\n\n{text}"
+# 提示词保持简短，但**必须带上文**。
+#
+# 孤立翻译是字幕翻译最大的质量杀手：日语大量省略主语，
+# 「にしても」「お兄さん」「〜なんて」这类表达的含义完全取决于前一句。
+# 格式用「上文 …… 本次 …… →」，并且上文里同时给**原文和译文**：
+# 只给原文的话模型会想自己再翻一遍上文，容易把上文也输出出来；
+# 给出译文等于同时锚定了用词（お兄さん 是否一直译成"哥哥"）。
+CONTEXT_HEADER = "上文："
+TURN_HEADER = "本次："
+ARROW = "→"
+
+
+def _context_lines(context, arrow=ARROW):
+    lines = []
+    for item in context or []:
+        original = (item.get("original") or "").strip()
+        translation = (item.get("translation") or "").strip()
+        if not original:
+            continue
+        lines.append(f"{original} {arrow} {translation}" if translation else original)
+    return lines
+
+
+def build_prompt_parts(text, source_name, target_name, context=None, style="instruction"):
+    """返回 (system_prompt, user_message)。
+
+    两种带上文的写法，实测差别很大（见 BENCHMARK_RESULTS.md 12.9）：
+
+    - ``completion``：把上文写成「原文 → 译文」的范例，最后留一句「本次：xxx →」
+      让模型接着写。**0.5B 会把这个当成接龙**：要么直接抄上一句的译文，
+      要么顺着范例继续输出日语。已实测到两种崩法，不能用于小模型。
+    - ``instruction``（默认）：上文放进 system prompt 当作背景说明，
+      user 消息里只有待翻译的句子。0.5B 不再有"续写范例"的错觉。
+    """
+    lines = _context_lines(context)
+
+    if style == "completion":
+        parts = [f"把{TURN_HEADER}最后一句{source_name}翻译成{target_name}，只输出译文。", ""]
+        if lines:
+            parts.append(CONTEXT_HEADER)
+            parts.extend(lines)
+            parts.append("")
+        parts.append(TURN_HEADER)
+        parts.append(f"{text} {ARROW}")
+        return SYSTEM_PROMPT, "\n".join(parts)
+
+    parts = [SYSTEM_PROMPT]
+    parts.append("")
+    if lines:
+        parts.append(f"这是字幕翻译。下面是对白的上文（{source_name}原文 {ARROW} {target_name}译文），"
+                     f"仅供理解语境和统一用词，**不要翻译它们**：")
+        parts.extend(lines)
+        parts.append("")
+        parts.append(f"现在把用户发来的那一句{source_name}翻译成{target_name}，"
+                     f"只输出译文，不要解释，不要输出日语。")
+    else:
+        parts.append(f"把用户发来的{source_name}句子翻译成{target_name}，只输出译文，不要解释。")
+    return "\n".join(parts), text
 
 # Qwen 的会话结束标记
 END_TOKENS = ["<|im_end|>", "<|endoftext|>"]
@@ -101,13 +155,13 @@ class InstructTranslator:
         # 与 Argos 那次 15 秒懒加载同类的坑，先付掉。
         self.translate("こんにちは。", source="ja", target="zh")
 
-    def _build_prompt(self, text, source, target):
+    def _build_prompt(self, text, source, target, context=None, style="instruction"):
         source_name = LANGUAGE_NAMES.get(source, source)
         target_name = LANGUAGE_NAMES.get(target, target)
+        system, user = build_prompt_parts(text, source_name, target_name, context, style)
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_TEMPLATE.format(
-                source=source_name, target=target_name, text=text)},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ]
         return self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True)
@@ -152,13 +206,13 @@ class InstructTranslator:
         new_tokens = generated[0][inputs["input_ids"].shape[1]:]
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
 
-    def translate(self, text, source="ja", target="zh"):
+    def translate(self, text, source="ja", target="zh", context=None, style="instruction"):
         text = (text or "").strip()
         if not text:
             return ""
 
         started = time.perf_counter()
-        prompt = self._build_prompt(text, source, target)
+        prompt = self._build_prompt(text, source, target, context, style)
         raw = self._generate_ct2(prompt) if self.backend == "ct2" else self._generate_torch(prompt)
         output = self._clean(raw, text)
 

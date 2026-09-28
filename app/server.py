@@ -70,6 +70,8 @@ class Session:
         self.lock = threading.Lock()
         self.translate_queue = queue.Queue(maxsize=MAX_TRANSLATE_QUEUE)
         self.translate_thread = None
+        # 已定稿并已翻译的句子，供后续句子当上文用（原文 + 译文）
+        self.history = []
         self.loop = None
         self.aset_queue = None
         self.dropped = 0
@@ -220,15 +222,28 @@ class Session:
             if item is None:
                 break
             segment_id, revision, text, audio_start, audio_end = item
+
+            # 上下文在**出队时**才取，而不是入队时。
+            # 队列是 FIFO 且单线程，所以处理到这一条时，前面几条的译文已经写进 history——
+            # 这样上文里的译文才是最新的，用词一致性才有意义。
+            context = self.history[-self.args.translate_context:] if self.args.translate_context > 0 else None
+
             try:
                 began = time.perf_counter()
-                translated = self.translator.translate(text, source=self.args.language, target="zh")
+                translated = self.translator.translate(
+                    text, source=self.args.language, target="zh", context=context)
                 elapsed = time.perf_counter() - began
             except Exception as exc:
                 print(f"翻译失败：{type(exc).__name__}: {exc}", flush=True)
                 continue
             if not translated:
                 continue
+
+            # 记进 history 供后续句子做上文（原文 + 译文，便于统一用词）
+            self.history.append({"original": text, "translation": translated})
+            if len(self.history) > 8:
+                del self.history[:-8]
+
             self.translated += 1
             event = SubtitleEvent(
                 segment_id=segment_id,
@@ -414,6 +429,10 @@ def main():
                         help="翻译模型目录名，默认取 factory.DEFAULT_MODEL")
     parser.add_argument("--translate-backend", default="ct2", choices=("ct2", "torch"),
                         help="instruct 后端：ct2（int8，快数倍）或 torch（fp32）")
+    parser.add_argument("--translate-context", type=int, default=2,
+                        help="翻译时带上前几句作为上文（0 = 关闭）。"
+                             "孤立翻译是字幕质量最大的杀手：日语省略主语，"
+                             "「にしても」「お兄さん」这类表达要靠上文才能定意思")
     parser.add_argument("--translate-threads", type=int, default=4,
                         help="翻译线程数（指令模型用 torch，这个值直接影响其速度）")
     parser.add_argument("--log", type=Path, default=None,
