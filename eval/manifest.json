@@ -1,0 +1,21 @@
+{
+  "description": "流式字幕评测集。片段按 VAD 统计挑选，覆盖轻声/稀疏/密集/响亮几种情况。参考文本在 refs/，status=verified 才算人工校对过。",
+  "sources": {
+    "asmr_ja_01": {
+      "path": "【貞操逆転⧸女性上位】治安最悪な貞操観念逆転世界に迷い込んで即襲われる貴方の話【男性向けシチュエーションボイス⧸ASMR】#白石香月 [CjMnmE37Q5k].mp4",
+      "url": "https://www.youtube.com/watch?v=CjMnmE37Q5k"
+    }
+  },
+  "clips": [
+    {"id": "ja_asmr_0030", "source": "asmr_ja_01", "start": 30,  "duration": 60, "language": "ja",
+     "tags": ["asmr", "quiet"], "note": "开场段，约 -29dB"},
+    {"id": "ja_asmr_0230", "source": "asmr_ja_01", "start": 150, "duration": 60, "language": "ja",
+     "tags": ["asmr", "legacy-sample"], "note": "包含原 sample_0230_0300.wav，与历史数据可对照"},
+    {"id": "ja_asmr_0500", "source": "asmr_ja_01", "start": 300, "duration": 60, "language": "ja",
+     "tags": ["asmr", "quietest"], "note": "全片最轻的一段，约 -32dB"},
+    {"id": "ja_asmr_0700", "source": "asmr_ja_01", "start": 420, "duration": 60, "language": "ja",
+     "tags": ["asmr", "sparse"], "note": "语音最稀疏（30 秒内约 8 秒语音），考验 VAD 门控与幻觉"},
+    {"id": "ja_asmr_0930", "source": "asmr_ja_01", "start": 570, "duration": 60, "language": "ja",
+     "tags": ["asmr", "dense", "loud"], "note": "语音最密、最响（约 -24dB）"}
+  ]
+}

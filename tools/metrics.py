@@ -21,6 +21,7 @@
 
 import argparse
 import json
+import re
 import statistics
 import sys
 import unicodedata
@@ -33,6 +34,25 @@ from app.events import latency_views, percentile  # noqa: E402
 # 计算字错率时去掉的字符：空白与标点。
 # 注意不要去掉「ー」（长音符）和「っ」（促音），它们在日语里是实义字符。
 PUNCTUATION = set(" \t\r\n\u3000。、，．,.!?！？：:；;「」『』（）()［］[]{}…‥·〜~-—_\"'“”‘’")
+
+
+TIMESTAMP = re.compile(r"^\s*\[\d+:\d+(?:\.\d+)?\]\s*")
+
+
+def load_reference(raw):
+    """参考文本：去掉 # 注释（整行或行尾）与行首 [mm:ss.s] 时间戳。旧的纯文本格式原样可用。"""
+    lines = []
+    for line in raw.splitlines():
+        line = line.split("#", 1)[0]
+        line = TIMESTAMP.sub("", line).strip()
+        if line:
+            lines.append(line)
+    return " ".join(lines)
+
+
+def reference_status(raw):
+    match = re.search(r"^#\s*status:\s*(\w+)", raw, flags=re.MULTILINE)
+    return match.group(1) if match else "unknown"
 
 
 def load(path):
@@ -135,7 +155,7 @@ def main():
     parser.add_argument("--show", action="store_true", help="打印逐事件明细")
     args = parser.parse_args()
 
-    reference = args.reference.read_text(encoding="utf-8").strip() if args.reference else None
+    reference = load_reference(args.reference.read_text(encoding="utf-8")) if args.reference else None
 
     reports = [analyze(path, reference) for path in args.runs]
 

@@ -1,0 +1,91 @@
+{
+  "total": {
+    "engine": "sensevoice",
+    "model": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
+    "clips": 5,
+    "scored_clips": 5,
+    "cpu_ratio_mean": 0.2432,
+    "p95_max": 0.565,
+    "final_p95_max": 0.909,
+    "cer": 0.8189,
+    "cer_draft": 0.8189
+  },
+  "clips": [
+    {
+      "clip": "ja_asmr_0030",
+      "tags": [
+        "asmr",
+        "quiet"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.204,
+      "p50": 0.48,
+      "p95": 0.517,
+      "final_p95": 0.764,
+      "worst": 0.856,
+      "cer": 0.7947019867549668,
+      "transcript": "気 啦 当外当少人通 男性一人歩危件思 踊 一人歩男性味感普通 不思言 良 私目的地上 目的地危険向"
+    },
+    {
+      "clip": "ja_asmr_0230",
+      "tags": [
+        "asmr",
+        "legacy-sample"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.274,
+      "p50": 0.455,
+      "p95": 0.562,
+      "final_p95": 0.85,
+      "worst": 0.984,
+      "cer": 0.8083832335329342,
+      "transcript": "短行 可兄 本当 人一人歩 部最近治安悪気付方 渡街先一人歩御 直引込 冗等 冗段 本当答 私知限今月 十件"
+    },
+    {
+      "clip": "ja_asmr_0500",
+      "tags": [
+        "asmr",
+        "quietest"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.271,
+      "p50": 0.431,
+      "p95": 0.535,
+      "final_p95": 0.876,
+      "worst": 0.958,
+      "cer": 0.8465909090909091,
+      "transcript": "命惜 街 治悪 近寄街 时盛治安化 说明 何言 浮甘男性突然 着 普通逃波面込何性欲化切 何故 女性力"
+    },
+    {
+      "clip": "ja_asmr_0700",
+      "tags": [
+        "asmr",
+        "sparse"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.132,
+      "p50": 0.405,
+      "p95": 0.484,
+      "final_p95": 0.73,
+      "worst": 0.853,
+      "cer": 0.7941176470588235,
+      "transcript": "大丈夫 嗯 别世界迷男性 目的地 曲见 先 嘿嘿 袋"
+    },
+    {
+      "clip": "ja_asmr_0930",
+      "tags": [
+        "asmr",
+        "dense",
+        "loud"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.335,
+      "p50": 0.451,
+      "p95": 0.565,
+      "final_p95": 0.909,
+      "worst": 0.945,
+      "cer": 0.8509316770186336,
+      "transcript": "本当警戒心男 上迷唾知 都合 高 体 抵抗 嗯呵 言抵抗 妈 今状机见 拉致他男 成功 抵抗见"
+    }
+  ]
+}

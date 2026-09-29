@@ -23,3 +23,6 @@ argos_packages/
 # 而且是 BENCHMARK_RESULTS.md 里那些数字的唯一证据，重跑一次要几十分钟。
 *.log
 .local/
+
+# 评测音频可由 tools/build_eval.py 从源视频重新切出
+eval/audio/
