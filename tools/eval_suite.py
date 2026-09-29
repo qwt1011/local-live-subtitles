@@ -33,7 +33,7 @@ def run_clip(args, engine, clip, pcm):
         pipeline="open_utterance", engine=args.engine, model=args.model, language=clip["language"],
         chunk=None, min_speech=args.min_speech, min_silence=args.min_silence,
         partial_step=args.partial_step, max_utterance=args.max_utterance,
-        call_timeout=None, legacy_params=False, step=0.1,
+        call_timeout=None, legacy_params=False, step=0.1, keep_fillers=args.keep_fillers,
     )
     rounds = []
     for _ in range(args.repeat):
@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--min-silence", type=float, default=0.35)
     parser.add_argument("--partial-step", type=float, default=0.5)
     parser.add_argument("--max-utterance", type=float, default=10.0)
+    parser.add_argument("--keep-fillers", action="store_true", help="关闭语气词过滤（对照用）")
     args = parser.parse_args()
 
     manifest = json.loads((EVAL_DIR / "manifest.json").read_text(encoding="utf-8"))

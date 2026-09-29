@@ -66,6 +66,7 @@ class Session:
             partial_step=args.partial_step,
             max_utterance=args.max_utterance,
             call_timeout=args.call_timeout,
+            drop_fillers=not args.keep_fillers,
         )
         self.lock = threading.Lock()
         self.translate_queue = queue.Queue(maxsize=MAX_TRANSLATE_QUEUE)
@@ -422,6 +423,8 @@ def main():
     parser.add_argument("--partial-step", type=float, default=0.5)
     parser.add_argument("--max-utterance", type=float, default=10.0)
     parser.add_argument("--call-timeout", type=float, default=None)
+    parser.add_argument("--keep-fillers", action="store_true",
+                        help="保留只有语气词/笑声的整句（默认丢弃，见 eval/README.md）")
     parser.add_argument("--translate", action="store_true",
                         help="启用本地翻译")
     parser.add_argument("--translate-engine", default="instruct", choices=("instruct", "nllb"),

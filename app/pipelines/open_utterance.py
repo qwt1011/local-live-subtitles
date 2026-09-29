@@ -33,6 +33,7 @@ whisper_streaming 的 LocalAgreement 需要在**文本前缀**和**音频时间*
 """
 
 import concurrent.futures
+import re
 import time
 
 from ..audio.ring_buffer import PcmBuffer
@@ -42,13 +43,21 @@ from .base import Job
 
 SAMPLE_RATE = 16000
 
+# 只由这些音节（及标点）组成的整句视为语气词/笑声。刻意不含「い」「ら」「そ」等，
+# 所以「はい」「あら」「そう」这类有意义的短句会保留。
+FILLER = re.compile(r"^[\s。、，,.…・?？!！ー〜~]*(?:[うんあえはへふ]|ん[ー〜]?)+[\s。、，,.…・?？!！ー〜~]*$")
+
+
+def is_filler(text):
+    return bool(FILLER.match(text))
+
 
 class OpenUtterancePipeline:
     name = "open_utterance"
 
     def __init__(self, engine, language="ja", sample_rate=SAMPLE_RATE,
                  min_speech=0.4, min_silence=0.35, partial_step=1.0,
-                 max_utterance=10.0, call_timeout=None):
+                 max_utterance=10.0, call_timeout=None, drop_fillers=True):
         self.engine = engine
         self.language = language
         self.sample_rate = sample_rate
@@ -57,6 +66,7 @@ class OpenUtterancePipeline:
         self.partial_step = partial_step
         self.max_utterance = max_utterance
         self.call_timeout = call_timeout
+        self.drop_fillers = drop_fillers
 
         self.buffer = PcmBuffer(sample_rate)
         self._open_start = None      # 当前开放段的起点（音频位置秒）
@@ -65,7 +75,7 @@ class OpenUtterancePipeline:
         self._last_decode_end = 0.0
         self._executor = None
         self.stats = {"calls": 0, "skipped": 0, "partials": 0, "finals": 0,
-                      "forced_cuts": 0, "timeouts": 0}
+                      "forced_cuts": 0, "timeouts": 0, "fillers": 0}
 
     # --- 台架接口 ---------------------------------------------------------
 
@@ -138,15 +148,24 @@ class OpenUtterancePipeline:
             )]
         elapsed = time.perf_counter() - started
 
+        text = result.text
+        filtered = bool(text) and self.drop_fillers and is_filler(text)
+        if filtered:
+            # 整句只有语气词/笑声（「う。」「へへ。」「ふふふ。」）：评测集上几乎都是
+            # 短停顿里的呼吸或笑声被识别成音节，送去翻译只会产生噪声字幕。
+            self.stats["fillers"] += 1
+            text = ""
+
         if is_final:
             self.stats["finals"] += 1
         self.stats["calls"] += 1
 
         return [SubtitleEvent(
-            segment_id=segment_id, revision=revision, text=result.text,
+            segment_id=segment_id, revision=revision, text=text,
             is_final=is_final, engine=self.engine.name,
             audio_start=job.audio_start, audio_end=job.audio_end,
             detail={
+                **({"filler": result.text} if filtered else {}),
                 "speech_seconds": round(speech, 3),
                 "utterance_seconds": round(job.audio_end - job.audio_start, 3),
                 "engine_seconds": round(elapsed, 4),

@@ -64,6 +64,7 @@ def build_pipeline(args, engine):
             partial_step=args.partial_step,
             max_utterance=args.max_utterance,
             call_timeout=args.call_timeout,
+            drop_fillers=not getattr(args, "keep_fillers", False),
         )
     raise SystemExit(f"unknown pipeline: {args.pipeline}")
 
