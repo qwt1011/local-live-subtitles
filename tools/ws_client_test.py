@@ -64,8 +64,9 @@ async def run(args):
                 if payload.get("type") != "event":
                     print(f"[status] {payload}")
                     continue
-                events.append(payload)
                 stamp = time.perf_counter() - started
+                payload["recv_wall"] = round(time.perf_counter() - wall_start, 4)
+                events.append(payload)
                 translation = payload.get("translation") or ""
                 kind = "FINAL" if payload["is_final"] else "part "
                 if translation:
@@ -77,11 +78,12 @@ async def run(args):
                 if translation:
                     print(f"{'':19s} 译文 -> {translation}")
 
+        # recv_wall 以推流开始为零点，与 audio_start / audio_end 同一条时间轴。
+        wall_start = time.perf_counter()
         task = asyncio.create_task(receiver())
 
         # 按实时速度推流：这正是浏览器届时会做的事。
         sent = 0
-        wall_start = time.perf_counter()
         while sent < len(pcm):
             block = pcm[sent:sent + frame_bytes]
             await websocket.send(block)
@@ -99,6 +101,12 @@ async def run(args):
         task.cancel()
 
     elapsed = time.perf_counter() - started
+    if args.save:
+        args.save.parent.mkdir(parents=True, exist_ok=True)
+        with args.save.open("w", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        print(f"事件已保存：{args.save}")
     # 译文事件也是 is_final=True（它靠更高的 revision 覆盖原句），
     # 统计"原文定稿延迟"时必须排除它们，否则数字会被译文拖高一大截，
     # 看起来像识别变慢了——实际原文路径完全没变。
@@ -146,6 +154,8 @@ def main():
     parser.add_argument("--speed", type=float, default=1.0,
                         help="推流速度倍数；1.0 才是真实延迟测量")
     parser.add_argument("--flush-wait", type=float, default=1.5)
+    parser.add_argument("--save", type=Path, default=None,
+                        help="把收到的事件存成 JSONL（附客户端接收时刻 recv_wall），供 tools/diag_display.py 分析")
     args = parser.parse_args()
     raise SystemExit(asyncio.run(run(args)))
 

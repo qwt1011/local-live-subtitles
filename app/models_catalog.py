@@ -42,7 +42,8 @@ CATALOG = {
         ],
         "required": ["model.safetensors", "tokenizer.json"],
         "languages": "ja -> zh（靠 prompt 指定，不依赖语言标记）",
-        "note": "翻译改用小参数量指令模型（约 0.95GB）。"
+        "note": "备选翻译模型（09-29 起默认改为 Hy-MT2，见 hy-mt2）。"
+                "翻译改用小参数量指令模型（约 0.95GB）。"
                 "理由：NLLB 那条线的 target_prefix 语言标记机制被实测证明是坏的"
                 "（见 BENCHMARK_RESULTS.md 12.6），而指令模型用自然语言 prompt 表达翻译意图，"
                 "完全绕开这个机制。",
@@ -120,6 +121,16 @@ CATALOG = {
         "hf": "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
         "languages": "zh, en, ja, ko, yue",
         "note": "上一版，自带 ja.wav 测试样本，作为回退选项",
+    },
+    "hy-mt2": {
+        "kind": "hf",
+        "repo": "tencent/Hy-MT2-1.8B-GGUF",
+        "dir": "Hy-MT2-1.8B-GGUF",
+        "files": ["Hy-MT2-1.8B-Q4_K_M.gguf"],
+        "required": ["Hy-MT2-1.8B-Q4_K_M.gguf"],
+        "languages": "33 种语言互译，含 ja -> zh",
+        "note": "默认翻译模型（09-29 起）：腾讯专用翻译模型，Q4_K_M 约 1.13GB，"
+                "llama-cpp-python 纯 CPU 推理。实测见 WORKLOG.md 待办第 2 条。",
     },
 }
 

@@ -20,21 +20,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-# 启动这个组合：SenseVoice 识别 + Qwen 指令模型翻译
-REQUIRED = {
-    "sensevoice-2024": "识别模型",
-    "Qwen2.5-0.5B-Instruct": "翻译模型",
+# 启动这个组合：SenseVoice 识别 + 翻译模型（默认 Hy-MT2，备选 Qwen 指令模型）
+TRANSLATE_MODEL = {
+    "hymt": "hy-mt2",
+    "instruct": "qwen2.5-0.5b-instruct",
 }
 
 
-def check_models():
+def check_models(engine):
     """检查模型是否就绪，返回缺失的条目名。"""
     from app.models_catalog import CATALOG, MODELS_DIR, is_ready
 
     print("[1/3] 检查模型")
     print(f"      模型目录：{MODELS_DIR}")
     missing = []
-    for name, label in REQUIRED.items():
+    required = {"sensevoice-2024": "识别模型", TRANSLATE_MODEL[engine]: "翻译模型"}
+    for name, label in required.items():
         entry = CATALOG.get(name)
         if entry is None:
             continue
@@ -43,14 +44,28 @@ def check_models():
         if not ready:
             missing.append(name)
 
-    # 翻译模型的 CT2 版是转换产物，不在 catalog 的必需文件里，单独看
-    ct2 = MODELS_DIR / "Qwen2.5-0.5B-Instruct-ct2-int8" / "model.bin"
-    print(f"      翻译模型 CT2 版：{'已就绪' if ct2.is_file() else '缺失'}")
-    if not ct2.is_file():
-        missing.append("Qwen2.5-0.5B-Instruct-ct2-int8")
+    if engine == "hymt":
+        try:
+            import llama_cpp  # noqa: F401
+        except ImportError:
+            print("      翻译推理库 llama-cpp-python：缺失")
+            missing.append("llama-cpp-python")
+    else:
+        # 翻译模型的 CT2 版是转换产物，不在 catalog 的必需文件里，单独看
+        ct2 = MODELS_DIR / "Qwen2.5-0.5B-Instruct-ct2-int8" / "model.bin"
+        print(f"      翻译模型 CT2 版：{'已就绪' if ct2.is_file() else '缺失'}")
+        if not ct2.is_file():
+            missing.append("Qwen2.5-0.5B-Instruct-ct2-int8")
 
     for name in missing:
-        if name.startswith("Qwen"):
+        if name == "hy-mt2":
+            print("      → 缺它服务无法带翻译启动。下载（约 1.13GB）：")
+            print("        python tools/setup_models.py --engine hy-mt2")
+        elif name == "llama-cpp-python":
+            print("      → 安装（预编译 CPU 版，不需要编译器）：")
+            print("        pip install llama-cpp-python==0.3.35 "
+                  "--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu")
+        elif name.lower().startswith("qwen"):
             print(f"      → 缺它不影响启动，只是不会显示中文。安装：")
             print(f"        python tools/setup_models.py --engine qwen2.5-0.5b-instruct")
             print(f"        ct2-transformers-converter --model models/Qwen2.5-0.5B-Instruct "
@@ -82,6 +97,9 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-translate", action="store_true", help="只出原文，不加载翻译模型")
     parser.add_argument("--language", default="ja")
+    parser.add_argument("--translate-engine", default="hymt", choices=("hymt", "instruct"),
+                        help="hymt=Hy-MT2-1.8B（默认）；instruct=Qwen2.5-0.5B（备选）")
+    parser.add_argument("--log", default=None, help="把会话事件写入 JSONL，供 tools/diag_display.py 诊断")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -89,7 +107,7 @@ def main():
     print("=" * 60)
     print()
 
-    check_models()
+    check_models(args.translate_engine)
     if not check_port(args.host, args.port):
         return 1
 
@@ -108,7 +126,9 @@ def main():
     argv = ["app.server", "--engine", "sensevoice", "--model", "sensevoice-2024",
             "--host", args.host, "--port", str(args.port), "--language", args.language]
     if not args.no_translate:
-        argv.append("--translate")
+        argv += ["--translate", "--translate-engine", args.translate_engine]
+    if args.log:
+        argv += ["--log", args.log]
     sys.argv = argv
 
     from app.server import main as server_main

@@ -10,7 +10,9 @@ websockets>=15,<18
 # 对照/离线精修通道，同时是 tools/offline_reference.py 生成伪参考用的引擎
 faster-whisper>=1.1,<2
 
-# Optional local translation: install separately when needed.
-# 计划改用 opus-mt-ja-zh + ctranslate2 直连（已放弃 Argos ja->en->zh 双重中转）。
-# ctranslate2 已随 faster-whisper 安装。
-# argostranslate>=1.9,<2
+# 默认翻译：Hy-MT2-1.8B（GGUF）。PyPI 上只有源码包，这台机器没有编译器，
+# 必须从预编译 CPU wheel 索引安装：
+#   pip install llama-cpp-python==0.3.35 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+llama-cpp-python==0.3.35
+
+# 备选翻译 Qwen2.5-0.5B-Instruct：ctranslate2 已随 faster-whisper 安装，另需 transformers 读 tokenizer。

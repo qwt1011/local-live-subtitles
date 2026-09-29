@@ -427,8 +427,9 @@ def main():
                         help="保留只有语气词/笑声的整句（默认丢弃，见 eval/README.md）")
     parser.add_argument("--translate", action="store_true",
                         help="启用本地翻译")
-    parser.add_argument("--translate-engine", default="instruct", choices=("instruct", "nllb"),
-                        help="instruct=本地小指令模型（当前可用）；nllb 实测不可用，仅保留")
+    parser.add_argument("--translate-engine", default="hymt", choices=("hymt", "instruct", "nllb"),
+                        help="hymt=Hy-MT2-1.8B（默认，09-29 实测）；instruct=Qwen2.5-0.5B（备选）；"
+                             "nllb 实测不可用，模型已删除，仅保留代码")
     parser.add_argument("--translate-model", default=None,
                         help="翻译模型目录名，默认取 factory.DEFAULT_MODEL")
     parser.add_argument("--translate-backend", default="ct2", choices=("ct2", "torch"),

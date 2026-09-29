@@ -19,7 +19,9 @@
   if (!Shared) return;
 
   const OVERLAY_ID = 'local-live-subtitles-overlay';
-  const LINE_COUNT = 2;
+  // 3 行而不是 2 行：实测（tools/diag_display.py）译文平均在定稿后 2–3 秒才到，
+  // 2 行时长句的译文常在到达前就被后面两句挤出屏幕；3 行时这类情况为 0。
+  const LINE_COUNT = 3;
 
   const settings = {
     enabled: true,
