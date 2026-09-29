@@ -23,8 +23,9 @@ VAD ────┤
 ## 为什么不用 LocalAgreement-2
 
 whisper_streaming 的 LocalAgreement 需要在**文本前缀**和**音频时间**之间建立对应关系，
-才能把已达成一致的文本从缓冲区里裁掉。SenseVoice 这个导出既没有 `initial_prompt`
-（无法续写上文的 prompt），也没有词级时间戳，做不了这个对应。
+才能把已达成一致的文本从缓冲区里裁掉。SenseVoice 这个导出没有 `initial_prompt`
+（无法续写上文的 prompt）。（09-29 更正：sherpa-onnx 其实给出逐 token 时间戳，
+`early_final` 就是靠它在句中切音频的，见下方 find_cut。）
 好在 SenseVoice 的单次成本只有约 0.05 秒/音频秒（base 是固定的约 1.1 秒/次），
 **重解码整句本来就负担得起**，不需要靠增量提交去省。
 
@@ -37,7 +38,7 @@ import re
 import time
 
 from ..audio.ring_buffer import PcmBuffer
-from ..audio.vad import speech_regions, speech_seconds
+from ..audio.vad import FINE_VAD_OPTIONS, speech_regions, speech_seconds
 from ..events import SubtitleEvent
 from .base import Job
 
@@ -52,12 +53,77 @@ def is_filler(text):
     return bool(FILLER.match(text))
 
 
+# --- 提前定稿（early_final）----------------------------------------------------
+# 离线模拟（tools/sim_partial_translate.py）的结论：长句里真正能提前的，几乎都是
+# "两句被 VAD 粘在一起"——说话人停顿不到 min_silence，前半句早已说完却要等整段结束。
+# 这里在 partial 里找句中的句末边界，用 token 时间戳把前半句的音频切出来单独定稿。
+
+PUNCT = set("。、，,.？?！!…・「」『』")
+SENTENCE_END = set("。？?！!")
+FINAL_PARTICLES = ("かしら", "ね", "よ", "わ", "ぞ", "ぜ")
+
+
+def content(text):
+    """去掉空格和标点后的内容，partial 之间比较稳定性只看这个。"""
+    return "".join(ch for ch in text if ch not in PUNCT and not ch.isspace())
+
+
+def ends_sentence(text):
+    """partial 是否以句末形式结尾：问号，或句末助词（ね/よ/わ/かしら…）。
+
+    不能只看「。」——SenseVoice 每次都在末尾补一个「。」，说到一半也有。
+    """
+    raw = text.rstrip()
+    if raw.endswith(("？", "?", "！", "!")):
+        return True
+    return content(raw).endswith(FINAL_PARTICLES)
+
+
+def find_cut(tokens, prev_content, min_chars=6, min_gap=0.2):
+    """在一次 partial 的 token 序列里找可以提前定稿的切点，返回相对本段起点的秒数或 None。
+
+    条件（全部满足才切）：
+    - 边界是句中的「。？！」，或句末助词（ね/よ/わ/かしら…）后面跟空格或「、」；
+    - 边界前至少 min_chars 个内容字，后面至少 2 个；
+    - 到"边界后 2 个字"为止的内容与上一次 partial 一致（稳定前缀），末尾在改的不算；
+    - 边界两侧的 token 时间间隔 ≥ min_gap，说明这里真有停顿，切在中点不会截断发音。
+    """
+    chars = []          # [(内容字, 时间)]
+    marks = []          # [(边界前的内容字数)]
+    for token, stamp in tokens:
+        if token.strip() == "":
+            body = "".join(ch for ch, _ in chars)
+            if chars and body.endswith(FINAL_PARTICLES):
+                marks.append(len(chars))
+            continue
+        if all(ch in PUNCT for ch in token):
+            body = "".join(ch for ch, _ in chars)
+            if chars and (any(ch in SENTENCE_END for ch in token)
+                          or ("、" in token and body.endswith(FINAL_PARTICLES))):
+                marks.append(len(chars))
+            continue
+        for ch in token:
+            chars.append((ch, stamp))
+
+    now = "".join(ch for ch, _ in chars)
+    stable = next((i for i, (a, b) in enumerate(zip(now, prev_content)) if a != b),
+                  min(len(now), len(prev_content)))
+    for pos in marks:
+        if pos < min_chars or pos + 2 > stable:
+            continue
+        before, after = chars[pos - 1][1], chars[pos][1]
+        if after - before >= min_gap:
+            return (before + after) / 2
+    return None
+
+
 class OpenUtterancePipeline:
     name = "open_utterance"
 
     def __init__(self, engine, language="ja", sample_rate=SAMPLE_RATE,
                  min_speech=0.4, min_silence=0.35, partial_step=1.0,
-                 max_utterance=10.0, call_timeout=None, drop_fillers=True):
+                 max_utterance=10.0, call_timeout=None, drop_fillers=True, early_final=False,
+                 adaptive_silence=None):
         self.engine = engine
         self.language = language
         self.sample_rate = sample_rate
@@ -67,6 +133,13 @@ class OpenUtterancePipeline:
         self.max_utterance = max_utterance
         self.call_timeout = call_timeout
         self.drop_fillers = drop_fillers
+        self.early_final = early_final
+        # 自适应静音阈值（秒）；None = 关闭。partial 以句末形式结尾时，静音达到它就定稿。
+        self.adaptive_silence = adaptive_silence
+        self._prev_partial = ""      # 上一次 partial 的内容，用来判断稳定前缀
+        self._pending_cut = None     # run_job 找到的切点（绝对秒数），由下一次 next_job 执行
+        self._partial_end = -1.0     # 最近一次 partial 覆盖到的音频位置
+        self._sentence_like = False  # 最近一次 partial 是否以句末形式结尾
 
         self.buffer = PcmBuffer(sample_rate)
         self._open_start = None      # 当前开放段的起点（音频位置秒）
@@ -75,7 +148,8 @@ class OpenUtterancePipeline:
         self._last_decode_end = 0.0
         self._executor = None
         self.stats = {"calls": 0, "skipped": 0, "partials": 0, "finals": 0,
-                      "forced_cuts": 0, "timeouts": 0, "fillers": 0}
+                      "forced_cuts": 0, "timeouts": 0, "fillers": 0, "early_finals": 0,
+                      "adaptive_finals": 0}
 
     # --- 台架接口 ---------------------------------------------------------
 
@@ -109,16 +183,52 @@ class OpenUtterancePipeline:
         if closing:
             return self._close(speech_end, forced)
 
+        if self.adaptive_silence is not None:
+            fine_end = self._fine_speech_end()
+            if fine_end is not None and self.buffer.end - fine_end >= self.adaptive_silence:
+                if self._partial_end >= fine_end:
+                    # 最近一次 partial 已经覆盖了到目前为止的全部语音，而且它以句末形式结尾：
+                    # 用短静音阈值定稿，不必等满 min_silence。切点留一点余量，别削掉词尾。
+                    if self._sentence_like:
+                        self.stats["adaptive_finals"] += 1
+                        return self._close(min(fine_end + 0.05, self.buffer.end),
+                                           forced=False, adaptive=True)
+                elif self.buffer.end > self._last_decode_end:
+                    # 停顿刚开始、还没解码过这段语音的结尾：立刻补一次 partial 看看是不是句末，
+                    # 不等 partial_step（SenseVoice 一次只要约 0.05s/音频秒，负担得起）。
+                    return self._partial_job()
+
+        cut = self._pending_cut
+        if cut is not None and cut <= self._open_start + self.min_speech:
+            self._pending_cut = cut = None      # 切点太靠前，切出来的前半句会被门控丢掉
+        if cut is not None and cut < speech_end:
+            # 前半句提前定稿：只重解码 [开放段起点, 切点]，剩下的音频留在缓冲区，
+            # 下一次 next_job 会从切点之后的语音重新开一段。
+            self.stats["early_finals"] += 1
+            return self._close(cut, forced=False, early=True)
+
         # 还没结束：按步长刷新 partial。
         if self.buffer.end - self._last_decode_end >= self.partial_step:
-            start, end = self._open_start, self.buffer.end
-            self._revision += 1
-            self._last_decode_end = end
-            pcm = self.buffer.slice(start, end)
-            self.stats["partials"] += 1
-            return Job("partial", start, end, pcm,
-                       meta={"segment_id": self._segment_id, "revision": self._revision})
+            return self._partial_job()
         return None
+
+    def _fine_speech_end(self, tail=1.5):
+        """用细粒度 VAD 只看缓冲区最后 tail 秒，返回最后一个语音区间的终点（绝对秒）。"""
+        start = max(self._open_start, self.buffer.end - tail)
+        pcm = self.buffer.slice(start, self.buffer.end)
+        if pcm.size == 0:
+            return None
+        regions = speech_regions(pcm, FINE_VAD_OPTIONS)
+        return start + regions[-1][1] if regions else None
+
+    def _partial_job(self):
+        start, end = self._open_start, self.buffer.end
+        self._revision += 1
+        self._last_decode_end = end
+        pcm = self.buffer.slice(start, end)
+        self.stats["partials"] += 1
+        return Job("partial", start, end, pcm,
+                   meta={"segment_id": self._segment_id, "revision": self._revision})
 
     def run_job(self, job):
         segment_id = job.meta["segment_id"]
@@ -158,6 +268,15 @@ class OpenUtterancePipeline:
 
         if is_final:
             self.stats["finals"] += 1
+        elif segment_id == self._segment_id:
+            if self.early_final:
+                tokens = getattr(result, "tokens", None) or []
+                rel = find_cut(tokens, self._prev_partial) if tokens else None
+                if rel is not None:
+                    self._pending_cut = job.audio_start + rel
+            self._prev_partial = content(result.text)
+            self._partial_end = job.audio_end
+            self._sentence_like = ends_sentence(result.text)
         self.stats["calls"] += 1
 
         return [SubtitleEvent(
@@ -170,13 +289,19 @@ class OpenUtterancePipeline:
                 "utterance_seconds": round(job.audio_end - job.audio_start, 3),
                 "engine_seconds": round(elapsed, 4),
                 "forced_cut": job.meta.get("forced", False),
+                **({"early_final": True} if job.meta.get("early") else {}),
+                **({"adaptive_final": True} if job.meta.get("adaptive") else {}),
             },
         )]
 
     # --- 内部 -------------------------------------------------------------
 
-    def _close(self, speech_end, forced):
+    def _close(self, speech_end, forced, early=False, adaptive=False):
         """结束当前开放段，产出一个 final（或门控跳过）作业。"""
+        self._prev_partial = ""
+        self._pending_cut = None
+        self._partial_end = -1.0
+        self._sentence_like = False
         start = self._open_start
         end = max(speech_end, start)
         pcm = self.buffer.slice(start, end)
@@ -201,7 +326,8 @@ class OpenUtterancePipeline:
         if forced:
             self.stats["forced_cuts"] += 1
         return Job("final", start, end, pcm,
-                   meta={"segment_id": segment_id, "revision": revision, "forced": forced})
+                   meta={"segment_id": segment_id, "revision": revision, "forced": forced,
+                         "early": early, "adaptive": adaptive})
 
     def _call(self, pcm):
         if not self.call_timeout:

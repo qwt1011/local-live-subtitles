@@ -65,6 +65,8 @@ def build_pipeline(args, engine):
             max_utterance=args.max_utterance,
             call_timeout=args.call_timeout,
             drop_fillers=not getattr(args, "keep_fillers", False),
+            early_final=getattr(args, "early_final", False),
+            adaptive_silence=getattr(args, "adaptive_silence", None),
         )
     raise SystemExit(f"unknown pipeline: {args.pipeline}")
 

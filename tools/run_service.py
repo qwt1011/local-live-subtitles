@@ -100,6 +100,10 @@ def main():
     parser.add_argument("--translate-engine", default="hymt", choices=("hymt", "instruct"),
                         help="hymt=Hy-MT2-1.8B（默认）；instruct=Qwen2.5-0.5B（备选）")
     parser.add_argument("--log", default=None, help="把会话事件写入 JSONL，供 tools/diag_display.py 诊断")
+    parser.add_argument("--early-final", action="store_true",
+                        help="实验：两句被 VAD 粘在一起时前半句提前定稿（默认关闭）")
+    parser.add_argument("--adaptive-silence", type=float, default=None, metavar="SECONDS",
+                        help="实验：partial 以句末助词/问号结尾时，静音达到这么多秒就定稿（如 0.2，默认关闭）")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -129,6 +133,10 @@ def main():
         argv += ["--translate", "--translate-engine", args.translate_engine]
     if args.log:
         argv += ["--log", args.log]
+    if args.early_final:
+        argv += ["--early-final"]
+    if args.adaptive_silence is not None:
+        argv += ["--adaptive-silence", str(args.adaptive_silence)]
     sys.argv = argv
 
     from app.server import main as server_main

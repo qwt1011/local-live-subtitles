@@ -67,6 +67,8 @@ class Session:
             max_utterance=args.max_utterance,
             call_timeout=args.call_timeout,
             drop_fillers=not args.keep_fillers,
+            early_final=args.early_final,
+            adaptive_silence=args.adaptive_silence,
         )
         self.lock = threading.Lock()
         self.translate_queue = queue.Queue(maxsize=MAX_TRANSLATE_QUEUE)
@@ -425,6 +427,11 @@ def main():
     parser.add_argument("--call-timeout", type=float, default=None)
     parser.add_argument("--keep-fillers", action="store_true",
                         help="保留只有语气词/笑声的整句（默认丢弃，见 eval/README.md）")
+    parser.add_argument("--early-final", action="store_true",
+                        help="实验：两句被 VAD 粘在一起时，前半句提前定稿并翻译（默认关闭）")
+    parser.add_argument("--adaptive-silence", type=float, default=None, metavar="SECONDS",
+                        help="实验：partial 以句末助词/问号结尾时，静音达到这么多秒就定稿"
+                             "（例如 0.2；默认关闭，仍按 --min-silence）")
     parser.add_argument("--translate", action="store_true",
                         help="启用本地翻译")
     parser.add_argument("--translate-engine", default="hymt", choices=("hymt", "instruct", "nllb"),

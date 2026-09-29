@@ -16,6 +16,9 @@ from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 # 350 ms 静音判定为停顿；100 ms padding 避免把词头词尾削掉。
 DEFAULT_VAD_OPTIONS = VadOptions(min_silence_duration_ms=350, speech_pad_ms=100)
+# 自适应静音阈值用：默认参数会把 0.35s 以内的停顿并进同一个语音区间，
+# 句末助词后 0.1–0.3s 的短停顿根本看不见，所以另用一套细粒度参数只看缓冲区尾部。
+FINE_VAD_OPTIONS = VadOptions(min_silence_duration_ms=100, speech_pad_ms=30)
 
 SAMPLE_RATE = 16000
 

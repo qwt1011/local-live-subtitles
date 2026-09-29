@@ -34,6 +34,7 @@ def run_clip(args, engine, clip, pcm):
         chunk=None, min_speech=args.min_speech, min_silence=args.min_silence,
         partial_step=args.partial_step, max_utterance=args.max_utterance,
         call_timeout=None, legacy_params=False, step=0.1, keep_fillers=args.keep_fillers,
+        early_final=args.early_final, adaptive_silence=args.adaptive_silence,
     )
     rounds = []
     for _ in range(args.repeat):
@@ -58,6 +59,9 @@ def main():
     parser.add_argument("--partial-step", type=float, default=0.5)
     parser.add_argument("--max-utterance", type=float, default=10.0)
     parser.add_argument("--keep-fillers", action="store_true", help="关闭语气词过滤（对照用）")
+    parser.add_argument("--early-final", action="store_true", help="开启句中提前定稿（实验）")
+    parser.add_argument("--adaptive-silence", type=float, default=None,
+                        help="句末形式时的短静音阈值（秒，实验）")
     args = parser.parse_args()
 
     manifest = json.loads((EVAL_DIR / "manifest.json").read_text(encoding="utf-8"))

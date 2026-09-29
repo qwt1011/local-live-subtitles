@@ -35,6 +35,8 @@ class AsrResult:
     language: str = "unknown"
     language_probability: float = 0.0
     duration_after_vad: float = 0.0
+    # [(token, 相对本段起点的秒数)]；只有 SenseVoice 填，用于提前定稿找切点
+    tokens: list = field(default_factory=list)
 
 
 class WhisperEngine:

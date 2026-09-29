@@ -80,7 +80,9 @@ class SenseVoiceEngine:
         result = stream.result
 
         text = (getattr(result, "text", "") or "").strip()
-        # SenseVoice 的 result 里没有逐词时间戳（CTC 需要额外开启），
+        # sherpa-onnx 的 result 带逐 token 时间戳（CTC 峰值位置，相对本段起点）。
+        # 注意末尾补的「。」时间戳会落在整段末尾，不代表真实发音位置。
+        tokens = list(zip(getattr(result, "tokens", []) or [], getattr(result, "timestamps", []) or []))
         # 整段作为一条 segment 返回；分段由 Segmenter 负责。
         rows = [{
             "start": 0.0,
@@ -94,4 +96,5 @@ class SenseVoiceEngine:
             language=getattr(result, "lang", self.language) or self.language,
             language_probability=1.0,
             duration_after_vad=0.0,
+            tokens=tokens,
         )
