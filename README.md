@@ -112,3 +112,10 @@ python tools\live_bench.py --tag my_live -- --asr parakeet                      
 - 长句要等说完才定稿翻译，10 秒以上的句子中文会晚到（长句分句的研究结论见 `docs/WORKLOG.md`）。
 - 评测集只有 5 段、同一个说话人，参考文本是多模型交叉裁定、未经人工听写，只适合比较配置的相对好坏。
 - 只测过 Windows 11 + Chrome 154。
+
+## 许可证
+
+代码以 [MIT](LICENSE) 许可证开源：可以自由使用、修改、分发，保留版权声明即可。
+
+模型不随本仓库分发，由 `tools/setup_models.py` 从各自的发布页下载，使用时遵循各模型自己的许可证
+（Parakeet：NVIDIA；SenseVoice：阿里 FunAudioLLM；Hy-MT2：腾讯）。
