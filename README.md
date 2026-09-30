@@ -28,8 +28,8 @@ Chrome 标签页 ──tabCapture──▶ 扩展 offscreen（16 kHz PCM）─�
 需要 Windows、Chrome 116+、Python 3.13（其他 3.10+ 版本未测）。模型约 2GB，运行时内存约 3GB。
 
 ```powershell
-git clone <本仓库> asmr_transcription
-cd asmr_transcription
+git clone https://github.com/qwt1011/local-live-subtitles.git
+cd local-live-subtitles
 python -m venv .venv                # 启动脚本依次找 .venv、..\..\.venv、PATH 里的 python
 .venv\Scripts\activate
 
