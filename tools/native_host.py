@@ -100,7 +100,9 @@ def status():
 
 def python_exe():
     # 用 pythonw（无控制台窗口）；找不到就退回当前解释器 + CREATE_NO_WINDOW。
-    candidates = [ROOT.parent.parent / ".venv" / "Scripts" / "pythonw.exe",
+    # 查找顺序与 .bat 一致：项目内 .venv → ../../.venv（原开发目录布局）→ 当前解释器旁边
+    candidates = [ROOT / ".venv" / "Scripts" / "pythonw.exe",
+                  ROOT.parent.parent / ".venv" / "Scripts" / "pythonw.exe",
                   Path(sys.executable).with_name("pythonw.exe"), Path(sys.executable)]
     return next(str(p) for p in candidates if p.is_file())
 

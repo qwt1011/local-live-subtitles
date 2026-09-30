@@ -30,8 +30,8 @@ Chrome 标签页 ──tabCapture──▶ 扩展 offscreen（16 kHz PCM）─�
 ```powershell
 git clone <本仓库> asmr_transcription
 cd asmr_transcription
-python -m venv ..\..\.venv          # 启动脚本默认找 ..\..\.venv，也可以自行修改 .bat 里的路径
-..\..\.venv\Scripts\activate
+python -m venv .venv                # 启动脚本依次找 .venv、..\..\.venv、PATH 里的 python
+.venv\Scripts\activate
 
 pip install -r requirements.txt
 # llama-cpp-python 在 PyPI 只有源码包，没有编译器时用预编译 CPU wheel：
