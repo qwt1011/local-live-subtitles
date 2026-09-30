@@ -287,6 +287,23 @@
       || doc.documentElement;
   }
 
+  /**
+   * 用 Chrome 直接打开的本地媒体文件（file:///…mp4 / mp3）：页面 body 里只有一个 <video>/<audio>。
+   * 返回那个媒体元素，否则 null。
+   *
+   * 需要单独识别的原因：这种页面全屏时，全屏的是 <video> 元素本身，
+   * 而媒体元素不能容纳子节点，pickMountParent 那套"挂到全屏元素里"在这里行不通。
+   * content.js 改用 popover 顶层（top layer）显示覆盖层，见那里的 mountTopLayer()。
+   */
+  function findStandaloneMedia(doc) {
+    if (!doc.location || doc.location.protocol !== 'file:' || !doc.body) return null;
+    const elements = Array.from(doc.body.children || [])
+      .filter((node) => node.id !== 'local-live-subtitles-overlay');
+    if (elements.length !== 1) return null;
+    const only = elements[0];
+    return only.tagName === 'VIDEO' || only.tagName === 'AUDIO' ? only : null;
+  }
+
   /** 按显示模式决定每一行显示什么。 */
   function composeLine(row, mode) {
     const showOriginal = mode !== 'translation';
@@ -309,6 +326,7 @@
     SubtitleState,
     composeLine,
     pickMountParent,
+    findStandaloneMedia,
     probeService,
     createStore,
     describeEnvironment,

@@ -18,6 +18,7 @@ let workletNode = null;
 let sourceNode = null;
 let framer = new Shared.PcmFramer();
 let sessionLanguage = 'ja';
+let sessionOptions = {};   // 实验开关，随 start 消息交给服务端
 let connected = false;
 let sentFrames = 0;
 let sentSamples = 0;
@@ -56,9 +57,10 @@ function publishStatus(patch) {
  * 现在每一步都有名字，失败时把**是哪一步**写进状态，popup 与 offscreen 控制台都能看到，
  * 并且 rethrow 让调用方知道失败了。
  */
-async function start(streamId, language) {
+async function start(streamId, language, options) {
   await stop();
   sessionLanguage = language || 'ja';
+  sessionOptions = options || {};
   sentFrames = 0;
   sentSamples = 0;
   framer.reset();
@@ -127,7 +129,7 @@ function connectSocket(language) {
     socket.onopen = () => {
       clearTimeout(timer);
       connected = true;
-      socket.send(JSON.stringify({ type: 'start', language }));
+      socket.send(JSON.stringify({ type: 'start', language, options: sessionOptions }));
       publishStatus({ connected: true, state: 'listening', step: null, error: null });
       resolve();
     };
@@ -222,7 +224,7 @@ async function stop() {
 // 在外层看来就是"点了开始捕获没反应"。
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'offscreen-start') {
-    start(message.streamId, message.language)
+    start(message.streamId, message.language, message.options)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;

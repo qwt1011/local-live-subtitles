@@ -1,6 +1,6 @@
 """本地服务冒烟测试：直接对 HTTP 接口打几段音频，检查返回结构与门控行为。
 
-用法（先启动 local_service.py）：
+用法（先启动 legacy/local_service.py，这是早期 HTTP 原型的冒烟测试）：
     python tools/smoke_service.py --wav sample_0230_0300.wav --port 8765
 """
 

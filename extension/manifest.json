@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Local Live Subtitles",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "本地日语/英语实时中文字幕（音频不出本机）",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "storage", "tabCapture", "offscreen"],
+  "permissions": ["activeTab", "storage", "tabCapture", "offscreen", "scripting", "nativeMessaging"],
   "host_permissions": [
     "https://www.youtube.com/*",
     "http://127.0.0.1:8766/*",
@@ -23,7 +23,7 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*"],
+      "matches": ["https://www.youtube.com/*", "file:///*"],
       "js": ["shared.js", "content.js"],
       "run_at": "document_idle"
     }

@@ -12,6 +12,11 @@
  *    迟到的旧 revision 直接丢弃。
  * 3. **刷新后设置回落**。现在 mode / enabled / 位置 / 字号都从 chrome.storage.local 读回，
  *    并且监听 storage.onChanged，popup 改了不用重新注入。
+ *
+ * 本地文件（file:///…mp4，用 Chrome 直接打开）另走一条挂载路径：那种页面全屏的是
+ * <video> 元素本身，媒体元素不能有子节点，"挂到全屏元素里"行不通。
+ * 这时把覆盖层做成 popover 放进顶层（top layer）：顶层里后放入的元素显示在上面，
+ * 所以每次全屏切换后重新 showPopover() 一次，覆盖层就压在全屏视频之上。
  */
 
 (() => {
@@ -33,6 +38,7 @@
 
   let overlay = null;
   let box = null;
+  let standaloneMedia = null;   // Chrome 直接打开的本地媒体文件里的 <video>/<audio>
   const slots = [];
   const state = new Shared.SubtitleState(LINE_COUNT);
 
@@ -57,6 +63,10 @@
   content:"…";opacity:.8;margin-left:2px
 }
 #${OVERLAY_ID}.lls-dragging .lls-box{outline:1px solid rgba(255,255,255,.45)}
+#${OVERLAY_ID}[popover]{
+  inset:auto;left:50%;bottom:8%;margin:0;padding:0;border:0;
+  background:transparent;color:inherit;overflow:visible;width:max-content;
+}
 `;
 
   function buildOverlay() {
@@ -92,8 +102,24 @@
    */
   function mount() {
     if (!overlay) return;
+    if (standaloneMedia) {
+      mountTopLayer();
+      return;
+    }
     const parent = Shared.pickMountParent(document);
     if (overlay.parentElement !== parent) parent.appendChild(overlay);
+  }
+
+  /** 本地媒体页面：覆盖层放进顶层，并在全屏切换后重新放一次，保证排在全屏视频之上。 */
+  function mountTopLayer() {
+    if (overlay.parentElement !== document.body) document.body.appendChild(overlay);
+    if (!overlay.hasAttribute('popover')) overlay.setAttribute('popover', 'manual');
+    try {
+      if (overlay.matches(':popover-open')) overlay.hidePopover();
+      overlay.showPopover();
+    } catch (error) {
+      console.warn('[本地字幕] popover 不可用，全屏时字幕可能被视频挡住：', error);
+    }
   }
 
   function applyPosition() {
@@ -187,8 +213,13 @@
     }, { passive: false });
   }
 
-  function handleMessage(message) {
+  function handleMessage(message, _sender, sendResponse) {
     if (!message) return;
+    if (message.type === 'overlay-ping') {
+      // background 开始捕获前用它确认本页有字幕脚本，没有才补注入。
+      sendResponse({ ok: true });
+      return;
+    }
     if (message.type === 'subtitle') {
       if (state.apply(message.payload)) {
         if (message.payload.is_final && !message.payload.translation) {
@@ -225,6 +256,8 @@
 
   function init() {
     teardown();
+    standaloneMedia = Shared.findStandaloneMedia(document);
+    if (location.protocol === 'file:' && !standaloneMedia) return;   // 其他本地网页不管
     buildOverlay();
 
     chrome.storage.local.get(
@@ -253,7 +286,7 @@
     document.addEventListener('fullscreenchange', mount, true);
     document.addEventListener('webkitfullscreenchange', mount, true);
     chrome.runtime.onMessage.addListener(handleMessage);
-    console.log('[本地字幕] content script 已就绪（v0.2.0）');
+    console.log(`[本地字幕] content script 已就绪（v0.4.0${standaloneMedia ? '，本地媒体' : ''}）`);
   }
 
   init();

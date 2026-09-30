@@ -28,13 +28,14 @@ EVAL_DIR = ROOT / "eval"
 SCORED = ("consensus", "verified")
 
 
-def run_clip(args, engine, clip, pcm):
+def run_clip(args, engine, clip, pcm, final_engine=None):
     options = SimpleNamespace(
         pipeline="open_utterance", engine=args.engine, model=args.model, language=clip["language"],
         chunk=None, min_speech=args.min_speech, min_silence=args.min_silence,
         partial_step=args.partial_step, max_utterance=args.max_utterance,
         call_timeout=None, legacy_params=False, step=0.1, keep_fillers=args.keep_fillers,
         early_final=args.early_final, adaptive_silence=args.adaptive_silence,
+        final_engine_obj=final_engine,
     )
     rounds = []
     for _ in range(args.repeat):
@@ -48,7 +49,7 @@ def run_clip(args, engine, clip, pcm):
 
 def main():
     parser = argparse.ArgumentParser(description="评测集批量回放")
-    parser.add_argument("--engine", default="sensevoice", choices=("whisper", "sensevoice"))
+    parser.add_argument("--engine", default="sensevoice", choices=("whisper", "sensevoice", "sherpa"))
     parser.add_argument("--model", default="sensevoice-2024")
     parser.add_argument("--tag", required=True, help="结果目录名，例如 sv2024")
     parser.add_argument("--clips", nargs="*", default=None, help="只跑这些片段 id")
@@ -62,6 +63,11 @@ def main():
     parser.add_argument("--early-final", action="store_true", help="开启句中提前定稿（实验）")
     parser.add_argument("--adaptive-silence", type=float, default=None,
                         help="句末形式时的短静音阈值（秒，实验）")
+    parser.add_argument("--final-engine", default=None, choices=("whisper", "sensevoice", "sherpa"),
+                        help="定稿改用另一个引擎（草稿仍用 --engine），例如 sherpa")
+    parser.add_argument("--final-model", default=None, help="--final-engine 的模型，例如 parakeet-ja")
+    parser.add_argument("--threads", type=int, default=None, help="--engine 的线程数")
+    parser.add_argument("--final-threads", type=int, default=None, help="--final-engine 的线程数")
     args = parser.parse_args()
 
     manifest = json.loads((EVAL_DIR / "manifest.json").read_text(encoding="utf-8"))
@@ -70,6 +76,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     engines = {}
+    final_engines = {}
     rows = []
     for clip in clips:
         wav = EVAL_DIR / "audio" / f"{clip['id']}.wav"
@@ -77,13 +84,18 @@ def main():
             raise SystemExit(f"缺少 {wav}，先运行 python tools/build_eval.py")
         language = clip["language"]
         if language not in engines:
-            engine_args = SimpleNamespace(engine=args.engine, language=language, threads=None,
+            engine_args = SimpleNamespace(engine=args.engine, language=language, threads=args.threads,
                                           legacy_params=False)
             engines[language] = build_engine(engine_args, args.model)
             engines[language].warm_up(language)
+            if args.final_engine:
+                final_args = SimpleNamespace(engine=args.final_engine, language=language,
+                                             threads=args.final_threads, legacy_params=False)
+                final_engines[language] = build_engine(final_args, args.final_model)
+                final_engines[language].warm_up(language)
         pcm = decode_audio(str(wav), sampling_rate=SAMPLE_RATE)
 
-        summary, events = run_clip(args, engines[language], clip, pcm)
+        summary, events = run_clip(args, engines[language], clip, pcm, final_engines.get(language))
         transcript = final_transcript(events)
 
         ref_path = EVAL_DIR / "refs" / f"{clip['id']}.txt"
@@ -116,7 +128,8 @@ def main():
 
     verified = [r for r in rows if r["ref"] in SCORED]
     total = {
-        "engine": args.engine, "model": args.model, "clips": len(rows),
+        "engine": args.engine, "model": args.model,
+        "final_engine": args.final_engine, "final_model": args.final_model, "clips": len(rows),
         "scored_clips": len(verified),
         "cpu_ratio_mean": mean("cpu_ratio", rows),
         "p95_max": max(r["p95"] for r in rows),

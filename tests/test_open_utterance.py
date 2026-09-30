@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.pipelines.base import Job  # noqa: E402
 from app.pipelines.open_utterance import (  # noqa: E402
-    OpenUtterancePipeline, ends_sentence, find_cut, is_filler)
+    OpenUtterancePipeline, ends_sentence, find_cut, is_filler, join_cjk)
 
 
 class FakeEngine:
@@ -166,6 +166,72 @@ class EarlyFinalTest(unittest.TestCase):
         pipeline, events = self.drive(early_final=False)
         self.assertEqual(pipeline.stats["early_finals"], 0)
         self.assertFalse(any(e.is_final for e in events))
+
+
+class JoinCjkTest(unittest.TestCase):
+    def test_spaces_between_japanese_removed(self):
+        self.assertEqual(join_cjk("脇 が甘い 男性 が 突然 増 えた の。"), "脇が甘い男性が突然増えたの。")
+        self.assertEqual(join_cjk("私の知っ てる限り"), "私の知ってる限り")
+
+    def test_english_spaces_kept(self):
+        self.assertEqual(join_cjk("hello world"), "hello world")
+        self.assertEqual(join_cjk("ASMR です"), "ASMR です")
+
+    def test_pipeline_output_joined(self):
+        pipeline = OpenUtterancePipeline(FakeEngine("本当 の ことよ。"))
+        [event] = pipeline.run_job(final_job())
+        self.assertEqual(event.text, "本当のことよ。")
+
+
+class FinalEngineTest(unittest.TestCase):
+    """混合模式：草稿用快引擎，定稿用准引擎。"""
+
+    def setUp(self):
+        self.fast = FakeEngine("草稿。")
+        self.fast.name = "fast"
+        self.accurate = FakeEngine("定稿。")
+        self.accurate.name = "accurate"
+
+    def test_final_uses_final_engine(self):
+        pipeline = OpenUtterancePipeline(self.fast, final_engine=self.accurate)
+        [event] = pipeline.run_job(final_job())
+        self.assertEqual((event.text, event.engine), ("定稿。", "accurate"))
+
+    def test_partial_uses_main_engine(self):
+        pipeline = OpenUtterancePipeline(self.fast, final_engine=self.accurate)
+        job = Job("partial", 0.0, 1.0, np.zeros(16000, dtype=np.float32),
+                  meta={"segment_id": 0, "revision": 1})
+        [event] = pipeline.run_job(job)
+        self.assertEqual((event.text, event.engine), ("草稿。", "fast"))
+
+    def test_default_is_single_engine(self):
+        [event] = OpenUtterancePipeline(self.fast).run_job(final_job())
+        self.assertEqual(event.engine, "fast")
+
+
+class SherpaCleanTextTest(unittest.TestCase):
+    def setUp(self):
+        from app.asr.sherpa_offline_engine import clean_text
+        self.clean = clean_text
+
+    def test_phrase_spaces_become_commas(self):
+        self.assertEqual(self.clean("大丈夫 ひょっとして あなたが"), "大丈夫、ひょっとして、あなたが。")
+
+    def test_space_after_final_particle_is_period(self):
+        self.assertEqual(self.clean("言ってたものね 抵抗しなかったのかって"), "言ってたものね。抵抗しなかったのかって。")
+
+    def test_laughter_removed(self):
+        self.assertEqual(self.clean("なんて好都合 アハ あ 高ぶってきたわ フフフフフ"), "なんて好都合、あ、高ぶってきたわ。")
+        self.assertEqual(self.clean("なんてね フフッ そろそろ目的地ね。"), "なんてね。そろそろ目的地ね。")
+        self.assertEqual(self.clean("フフフフ"), "")
+
+    def test_sentence_end_added_once(self):
+        self.assertEqual(self.clean("そんなに驚くことかしら"), "そんなに驚くことかしら。")
+        self.assertEqual(self.clean("本当？"), "本当？")
+
+    def test_words_with_fu_ha_kept(self):
+        self.assertEqual(self.clean("ハンカチ 持ってる"), "ハンカチ、持ってる。")
+        self.assertEqual(self.clean("フランス"), "フランス。")
 
 
 class EndsSentenceTest(unittest.TestCase):

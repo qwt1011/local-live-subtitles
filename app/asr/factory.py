@@ -7,11 +7,12 @@
 
 from .faster_whisper_engine import WhisperEngine
 
-ENGINES = ("whisper", "sensevoice")
+ENGINES = ("whisper", "sensevoice", "sherpa")
 
 DEFAULT_MODEL = {
     "whisper": "base",
     "sensevoice": "sensevoice-2024",
+    "sherpa": "parakeet-ja",
 }
 
 # 复现"停滞版本"参数用的旧配置，只在对照实验里使用。
@@ -32,6 +33,9 @@ def create_engine(engine_name, model_name=None, language="ja", threads=None,
             raise SystemExit("--legacy-params 只对 whisper 有意义")
         from .sensevoice_engine import SenseVoiceEngine
         engine = SenseVoiceEngine(model_name, num_threads=threads, language=language)
+    elif engine_name == "sherpa":
+        from .sherpa_offline_engine import SherpaOfflineEngine
+        engine = SherpaOfflineEngine(model_name, num_threads=threads, language=language)
     elif engine_name == "whisper":
         overrides = LEGACY_WHISPER_KWARGS if legacy_params else {}
         engine = WhisperEngine(model_name, **overrides)

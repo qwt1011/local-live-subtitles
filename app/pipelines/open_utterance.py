@@ -53,6 +53,17 @@ def is_filler(text):
     return bool(FILLER.match(text))
 
 
+# SenseVoice 有时在日语词之间插空格（「脇 が甘い 男性 が」）。日语本身不用空格，
+# 翻译模型会把空格当成断句，09-30 上限测试里这样的 6 句有 3 句因此译错
+# （「脇が甘い」被译成"周围变得甜美"）。只去掉两侧都是中日文字符的空格，英文不受影响。
+_CJK = r"぀-ヿ㐀-鿿ｦ-ﾟ々〆ー"
+CJK_SPACE = re.compile(rf"(?<=[{_CJK}])\s+(?=[{_CJK}])")
+
+
+def join_cjk(text):
+    return CJK_SPACE.sub("", text)
+
+
 # --- 提前定稿（early_final）----------------------------------------------------
 # 离线模拟（tools/sim_partial_translate.py）的结论：长句里真正能提前的，几乎都是
 # "两句被 VAD 粘在一起"——说话人停顿不到 min_silence，前半句早已说完却要等整段结束。
@@ -123,8 +134,12 @@ class OpenUtterancePipeline:
     def __init__(self, engine, language="ja", sample_rate=SAMPLE_RATE,
                  min_speech=0.4, min_silence=0.35, partial_step=1.0,
                  max_utterance=10.0, call_timeout=None, drop_fillers=True, early_final=False,
-                 adaptive_silence=None):
+                 adaptive_silence=None, final_engine=None):
         self.engine = engine
+        # 定稿专用引擎（None = 与 partial 同一个）。09-30：Parakeet 识别更准，但每 0.5s 重解码
+        # 整句让草稿延迟翻倍；混合模式下草稿用快的 SenseVoice，只在定稿时让 Parakeet 解码一次。
+        # 翻译只吃定稿，所以准确度收益全部保留。
+        self.final_engine = final_engine
         self.language = language
         self.sample_rate = sample_rate
         self.min_speech = min_speech
@@ -146,7 +161,7 @@ class OpenUtterancePipeline:
         self._segment_id = 0
         self._revision = 0
         self._last_decode_end = 0.0
-        self._executor = None
+        self._executors = {}
         self.stats = {"calls": 0, "skipped": 0, "partials": 0, "finals": 0,
                       "forced_cuts": 0, "timeouts": 0, "fillers": 0, "early_finals": 0,
                       "adaptive_finals": 0}
@@ -243,22 +258,23 @@ class OpenUtterancePipeline:
             )]
 
         speech = speech_seconds(job.pcm)
+        engine = self.final_engine if is_final and self.final_engine is not None else self.engine
         started = time.perf_counter()
         try:
-            result = self._call(job.pcm)
+            result = self._call(job.pcm, engine, job.kind)
         except TimeoutError:
             # 单次调用必须有硬时间预算：台架上曾观察到某一块耗时 1255 秒且不复现，
             # 当时流水线没有超时也没有看门狗，字幕会彻底停摆且不会恢复。
             self.stats["timeouts"] += 1
             return [SubtitleEvent(
                 segment_id=segment_id, revision=revision, text="", is_final=is_final,
-                engine=self.engine.name, audio_start=job.audio_start,
+                engine=engine.name, audio_start=job.audio_start,
                 audio_end=job.audio_end,
                 detail={"timeout": True, "call_timeout": self.call_timeout},
             )]
         elapsed = time.perf_counter() - started
 
-        text = result.text
+        text = join_cjk(result.text)
         filtered = bool(text) and self.drop_fillers and is_filler(text)
         if filtered:
             # 整句只有语气词/笑声（「う。」「へへ。」「ふふふ。」）：评测集上几乎都是
@@ -281,7 +297,7 @@ class OpenUtterancePipeline:
 
         return [SubtitleEvent(
             segment_id=segment_id, revision=revision, text=text,
-            is_final=is_final, engine=self.engine.name,
+            is_final=is_final, engine=engine.name,
             audio_start=job.audio_start, audio_end=job.audio_end,
             detail={
                 **({"filler": result.text} if filtered else {}),
@@ -329,17 +345,21 @@ class OpenUtterancePipeline:
                    meta={"segment_id": segment_id, "revision": revision, "forced": forced,
                          "early": early, "adaptive": adaptive})
 
-    def _call(self, pcm):
+    def _call(self, pcm, engine=None, kind="partial"):
+        engine = engine or self.engine
         if not self.call_timeout:
-            return self.engine.transcribe(pcm, language=self.language)
-        if self._executor is None:
-            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = self._executor.submit(self.engine.transcribe, pcm, self.language)
+            return engine.transcribe(pcm, language=self.language)
+        # 服务端可能在另一个线程里跑定稿（Session.async_finals），草稿和定稿各用一个执行器，
+        # 否则一边超时 shutdown 会把另一边正在等的执行器一起关掉。
+        executor = self._executors.get(kind)
+        if executor is None:
+            executor = self._executors[kind] = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(engine.transcribe, pcm, self.language)
         try:
             return future.result(timeout=self.call_timeout)
         except concurrent.futures.TimeoutError:
             # 注意：ONNX 推理无法真正取消，这里只是"不再等它"。
             # 真实服务必须把识别放进可杀死的子进程，否则线程会一直占着资源。
-            self._executor.shutdown(wait=False)
-            self._executor = None
+            executor.shutdown(wait=False)
+            self._executors.pop(kind, None)
             raise TimeoutError(f"transcribe exceeded {self.call_timeout}s")

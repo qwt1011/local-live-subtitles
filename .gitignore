@@ -5,10 +5,13 @@ __pycache__/
 .venv/
 venv/
 
-# 大体积媒体文件不入库（示例音频 fixture 保留在仓库里，14MB 的源视频不入库）
+# 媒体文件不入库：源视频有版权，且体积大
 *.mp4
 *.mkv
 *.flv
+# 音频片段也不入库（来自有版权的视频）；评测音频由 tools/build_eval.py 从源视频切出
+*.wav
+*.mp3
 
 # 模型与语言包缓存：体积大、可重新下载
 models/
@@ -26,3 +29,11 @@ argos_packages/
 
 # 评测音频可由 tools/build_eval.py 从源视频重新切出
 eval/audio/
+
+# 本机运行产物，不入库：
+# - 会话日志（tools/run_service.py 写到 runs/live/）含真实观看内容的转写；
+# - 一键启动的服务日志、状态文件，以及安装脚本生成的宿主清单（含本机路径和扩展 ID）。
+runs/live/
+runs/service.log
+runs/service_state.json
+runs/native_host/

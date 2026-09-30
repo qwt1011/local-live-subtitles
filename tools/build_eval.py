@@ -1,5 +1,9 @@
 """按 eval/manifest.json 切出评测片段，并为还没有参考文本的片段生成校对草稿。
 
+音频不入库（源视频有版权）：先用 yt-dlp 把 manifest 里的源视频下载到项目根目录，再运行本脚本。
+除 eval/audio/ 下的评测片段外，还会切出早期台架和 tests/test_ws_protocol.js 用的
+sample_0230_0300.wav（manifest 的 "samples" 段）。
+
     python tools/build_eval.py            # 切片 + 生成缺失的草稿
     python tools/build_eval.py --force    # 重新生成全部草稿（只覆盖 draft；consensus / verified 永不覆盖）
 
@@ -46,10 +50,12 @@ def cut_clips(manifest, force):
     audio_dir.mkdir(parents=True, exist_ok=True)
     decoded = {}
     clips = {}
-    for clip in manifest["clips"]:
-        path = audio_dir / f"{clip['id']}.wav"
+    targets = [(audio_dir / f"{clip['id']}.wav", clip) for clip in manifest["clips"]]
+    targets += [(ROOT / sample["path"], sample) for sample in manifest.get("samples", [])]
+    for path, clip in targets:
+        key = clip.get("id", path.stem)
         if path.is_file() and not force:
-            clips[clip["id"]] = decode_audio(str(path), sampling_rate=SAMPLE_RATE)
+            clips[key] = decode_audio(str(path), sampling_rate=SAMPLE_RATE)
             continue
         source = manifest["sources"][clip["source"]]
         if clip["source"] not in decoded:
@@ -62,7 +68,7 @@ def cut_clips(manifest, force):
         begin = int(clip["start"] * SAMPLE_RATE)
         pcm = full[begin: begin + int(clip["duration"] * SAMPLE_RATE)]
         write_wav(path, pcm)
-        clips[clip["id"]] = pcm
+        clips[key] = pcm
         print(f"  写出 {path.relative_to(ROOT)}（{len(pcm) / SAMPLE_RATE:.1f}s）", flush=True)
     return clips
 

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>本地字幕 · 服务日志</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    body { width: auto; max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .bar h1 { flex: 1; }
+    .bar .ghost { flex: none; }
+    #path { color: var(--muted); font-size: 12px; margin-bottom: 8px; overflow-wrap: anywhere; }
+    pre {
+      margin: 0; padding: 12px 14px; min-height: 60vh;
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      font: 12.5px/1.55 "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    label.auto { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <h1>服务日志</h1>
+    <label class="auto"><input id="auto" type="checkbox" checked> 每 3 秒刷新</label>
+    <button id="reload" type="button" class="ghost">刷新</button>
+  </div>
+  <div id="path"></div>
+  <pre id="log" aria-live="polite">读取中…</pre>
+  <script src="log.js"></script>
+</body>
+</html>

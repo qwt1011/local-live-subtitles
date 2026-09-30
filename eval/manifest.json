@@ -6,6 +6,10 @@
       "url": "https://www.youtube.com/watch?v=CjMnmE37Q5k"
     }
   },
+  "samples": [
+    {"path": "sample_0230_0300.wav", "source": "asmr_ja_01", "start": 149.999, "duration": 30,
+     "note": "早期台架（BENCHMARK_RESULTS.md）与 tests/test_ws_protocol.js 用的 30 秒样本"}
+  ],
   "clips": [
     {"id": "ja_asmr_0030", "source": "asmr_ja_01", "start": 30,  "duration": 60, "language": "ja",
      "tags": ["asmr", "quiet"], "note": "开场段，约 -29dB"},

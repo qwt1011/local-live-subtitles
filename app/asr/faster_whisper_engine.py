@@ -1,6 +1,6 @@
 """faster-whisper 引擎封装。
 
-服务（local_service.py）与回放台架（tools/replay.py）共用这里的参数，
+服务与回放台架（tools/replay.py）共用这里的参数，
 避免出现"服务里一套参数、台架里另一套"导致对比失真。
 """
 
@@ -14,7 +14,7 @@ from faster_whisper import WhisperModel
 #
 # temperature 阶梯从 faster-whisper 默认的 [0.0, 0.2, ..., 1.0] 收窄到 [0.0, 0.4]：
 # 默认阶梯会在低置信块上用更高温度**重解码整段**（最多 7 遍），实测把同一个 3 秒块
-# 从 2.30s 推到 6.59s、从 2.55s 推到 7.21s（diag_fallback.py）。
+# 从 2.30s 推到 6.59s、从 2.55s 推到 7.21s（legacy/diag_fallback.py）。
 # 但温度阶梯同时也在压制复读，所以不能只是删掉，必须用下面两个参数显式补上。
 DEFAULT_ASR_KWARGS = {
     "beam_size": 1,

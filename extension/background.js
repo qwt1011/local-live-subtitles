@@ -27,11 +27,27 @@ const SESSION_KEYS = { activeTabId: 'activeTabId', capturing: 'capturing' };
 
 async function setState(patch) {
   await store.set(patch);
+  if (SESSION_KEYS.capturing in patch) setBadge(Boolean(patch[SESSION_KEYS.capturing]));
+}
+
+/** 工具栏图标角标：字幕进行中时显示，不打开弹窗也知道在跑。 */
+function setBadge(on) {
+  try {
+    chrome.action.setBadgeText({ text: on ? 'ON' : '' });
+    if (on) chrome.action.setBadgeBackgroundColor({ color: '#2f6fed' });
+  } catch (error) {
+    console.warn('[本地字幕] 设置角标失败（已忽略）：', error);
+  }
 }
 
 async function getState() {
   return store.get([SESSION_KEYS.activeTabId, SESSION_KEYS.capturing]);
 }
+
+// popup 也会直接写 capturing（停止、服务闲置退出后的纠正）：角标跟着 storage 走，而不是只跟 setState。
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes.capturing) setBadge(Boolean(changes.capturing.newValue));
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 用 async IIFE 而不是让 listener 变成 async：
@@ -39,7 +55,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     try {
       if (message.type === 'start-capture') {
-        sendResponse(await startCapture(message.tabId, message.language, message.streamId));
+        sendResponse(await startCapture(message.tabId, message.language, message.streamId,
+          message.options));
       } else if (message.type === 'stop-capture') {
         await stopCapture();
         sendResponse({ ok: true });
@@ -84,10 +101,11 @@ async function sendToOffscreen(message, { retries = 30, delayMs = 100 } = {}) {
   return { ok: false, error: `offscreen 文档未就绪（${message.type} 无人接收）` };
 }
 
-async function startCapture(tabId, language, providedStreamId) {
+async function startCapture(tabId, language, providedStreamId, options) {
   await stopCapture();
   await setState({ [SESSION_KEYS.activeTabId]: tabId, [SESSION_KEYS.capturing]: true });
 
+  await ensureOverlay(tabId);
   await ensureOffscreenDocument();
 
   // 优先用 popup 传来的 streamId：popup 有确定的用户手势，
@@ -102,9 +120,29 @@ async function startCapture(tabId, language, providedStreamId) {
   }
   console.log('[本地字幕] 已取得标签页音频流，交给 offscreen');
 
-  const response = await sendToOffscreen({ type: 'offscreen-start', streamId, language });
+  const response = await sendToOffscreen({ type: 'offscreen-start', streamId, language, options });
   if (response && response.ok === false) return response;
   return { ok: true };
+}
+
+/**
+ * 确保标签页里有字幕脚本，没有就现场注入。
+ *
+ * 09-30 用户实测：本地 mp4 页面音频照常识别翻译（服务端日志 15 句定稿），页面上却没有字幕。
+ * 原因是 Chrome 在"打开允许访问文件网址"或重新加载扩展时，不会给**已经打开**的标签页补注入
+ * content script，必须刷新页面；而 relayToTab 会吞掉"没人接收"的错误，所以毫无提示。
+ * 现在开始捕获时先探测一次，探测不到就用 chrome.scripting 注入，不再依赖用户刷新。
+ */
+async function ensureOverlay(tabId) {
+  const alive = await chrome.tabs.sendMessage(tabId, { type: 'overlay-ping' }).catch(() => null);
+  if (alive && alive.ok) return;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['shared.js', 'content.js'] });
+    console.log('[本地字幕] 标签页里没有字幕脚本，已补注入');
+  } catch (error) {
+    // 例如 chrome:// 页面、或本地文件但没开「允许访问文件网址」：采集照常进行，只是没有覆盖层。
+    console.warn('[本地字幕] 无法注入字幕脚本：', error);
+  }
 }
 
 /**

@@ -240,6 +240,37 @@ test('标准属性优先于 webkit 属性', () => {
   assert.strictEqual(Shared.pickMountParent(doc).tag, 'standard');
 });
 
+console.log('\nfindStandaloneMedia（Chrome 直接打开的本地媒体文件）');
+
+function mediaDoc(protocol, children) {
+  return { location: { protocol }, body: { children } };
+}
+
+test('file:// 页面只有一个 <video> 时返回它', () => {
+  const video = { tagName: 'VIDEO' };
+  assert.strictEqual(Shared.findStandaloneMedia(mediaDoc('file:', [video])), video);
+});
+
+test('本地音频文件同样识别', () => {
+  const audio = { tagName: 'AUDIO' };
+  assert.strictEqual(Shared.findStandaloneMedia(mediaDoc('file:', [audio])), audio);
+});
+
+test('已注入的覆盖层不影响判断（扩展重载后重新注入）', () => {
+  const video = { tagName: 'VIDEO' };
+  const overlay = { tagName: 'DIV', id: 'local-live-subtitles-overlay' };
+  assert.strictEqual(Shared.findStandaloneMedia(mediaDoc('file:', [video, overlay])), video);
+});
+
+test('本地的普通网页不算', () => {
+  const doc = mediaDoc('file:', [{ tagName: 'DIV' }, { tagName: 'VIDEO' }]);
+  assert.strictEqual(Shared.findStandaloneMedia(doc), null);
+});
+
+test('YouTube 页面不算', () => {
+  assert.strictEqual(Shared.findStandaloneMedia(mediaDoc('https:', [{ tagName: 'VIDEO' }])), null);
+});
+
 console.log('\ncreateStore（永不抛错的存储封装）');
 
 function fakeArea(backing) {

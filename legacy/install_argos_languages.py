@@ -18,7 +18,7 @@ def main() -> None:
     if len(selected) != len(wanted):
         found = sorted({(p.from_code, p.to_code) for p in packages})
         raise SystemExit(f"Missing language package; available matches: {found}")
-    cache = Path(__file__).parent / "argos_packages"
+    cache = Path(__file__).resolve().parents[1] / "argos_packages"
     cache.mkdir(exist_ok=True)
     installed = set()
     for language in argostranslate.translate.get_installed_languages():

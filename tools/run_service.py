@@ -21,20 +21,32 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 # 启动这个组合：SenseVoice 识别 + 翻译模型（默认 Hy-MT2，备选 Qwen 指令模型）
+# 识别模型：名字 → (引擎, catalog 键)。parakeet 是 09-30 评测的候选（CER 0.090 → 0.066，但单次识别约慢 3 倍）。
+ASR_MODEL = {
+    "sensevoice": ("sensevoice", "sensevoice-2024"),
+    "parakeet": ("sherpa", "parakeet-ja"),
+}
+# 混合模式：草稿用 SenseVoice（快），定稿用 Parakeet 重解码一次（准）。翻译只吃定稿。
+HYBRID = {"hybrid": (("sensevoice", "sensevoice-2024"), ("sherpa", "parakeet-ja"))}
+
 TRANSLATE_MODEL = {
     "hymt": "hy-mt2",
     "instruct": "qwen2.5-0.5b-instruct",
 }
 
 
-def check_models(engine):
+def check_models(engine, asr="sensevoice"):
     """检查模型是否就绪，返回缺失的条目名。"""
     from app.models_catalog import CATALOG, MODELS_DIR, is_ready
 
     print("[1/3] 检查模型")
     print(f"      模型目录：{MODELS_DIR}")
     missing = []
-    required = {"sensevoice-2024": "识别模型", TRANSLATE_MODEL[engine]: "翻译模型"}
+    if asr in HYBRID:
+        required = {HYBRID[asr][0][1]: "草稿识别模型", HYBRID[asr][1][1]: "定稿识别模型"}
+    else:
+        required = {ASR_MODEL[asr][1]: "识别模型"}
+    required[TRANSLATE_MODEL[engine]] = "翻译模型"
     for name, label in required.items():
         entry = CATALOG.get(name)
         if entry is None:
@@ -97,9 +109,18 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-translate", action="store_true", help="只出原文，不加载翻译模型")
     parser.add_argument("--language", default="ja")
+    parser.add_argument("--asr", default="sensevoice", choices=tuple(ASR_MODEL) + tuple(HYBRID),
+                        help="识别模型：sensevoice（默认）；parakeet（日语专用，更准但更慢）；"
+                             "hybrid（草稿 SenseVoice、定稿 Parakeet）")
     parser.add_argument("--translate-engine", default="hymt", choices=("hymt", "instruct"),
                         help="hymt=Hy-MT2-1.8B（默认）；instruct=Qwen2.5-0.5B（备选）")
-    parser.add_argument("--log", default=None, help="把会话事件写入 JSONL，供 tools/diag_display.py 诊断")
+    parser.add_argument("--log", default=None, help="把会话事件写入指定 JSONL（覆盖默认的按会话日志）")
+    parser.add_argument("--no-log", action="store_true",
+                        help="不写会话日志（默认每次会话写一份到 runs/live/，只保留最近 20 份）")
+    parser.add_argument("--idle-exit", type=float, default=0, metavar="SECONDS",
+                        help="连续这么多秒没有采集就自动退出（0 = 不退出，扩展一键启动时会传入）")
+    parser.add_argument("--async-finals", action="store_true",
+                        help="实验：定稿放进独立线程（09-30 实测更慢，默认关闭）")
     parser.add_argument("--early-final", action="store_true",
                         help="实验：两句被 VAD 粘在一起时前半句提前定稿（默认关闭）")
     parser.add_argument("--adaptive-silence", type=float, default=None, metavar="SECONDS",
@@ -111,7 +132,7 @@ def main():
     print("=" * 60)
     print()
 
-    check_models(args.translate_engine)
+    check_models(args.translate_engine, args.asr)
     if not check_port(args.host, args.port):
         return 1
 
@@ -127,12 +148,27 @@ def main():
     print("-" * 60)
     print()
 
-    argv = ["app.server", "--engine", "sensevoice", "--model", "sensevoice-2024",
+    final = None
+    if args.asr in HYBRID:
+        (asr_engine, asr_model), final = HYBRID[args.asr]
+    else:
+        asr_engine, asr_model = ASR_MODEL[args.asr]
+    argv = ["app.server", "--engine", asr_engine, "--model", asr_model,
             "--host", args.host, "--port", str(args.port), "--language", args.language]
+    if final:
+        argv += ["--final-engine", final[0], "--final-model", final[1]]
     if not args.no_translate:
         argv += ["--translate", "--translate-engine", args.translate_engine]
+    # 默认写日志：用户实测后能直接复盘逐句识别、延迟和过滤情况（09-30 双开关实测就因为没日志没法分析）。
+    # 只存文本和时间，一小时约 1.6MB，会话结束时写一次。
     if args.log:
         argv += ["--log", args.log]
+    elif not args.no_log:
+        argv += ["--log-dir", str(ROOT / "runs" / "live")]
+    if args.async_finals:
+        argv += ["--async-finals"]
+    if args.idle_exit:
+        argv += ["--idle-exit", str(args.idle_exit)]
     if args.early_final:
         argv += ["--early-final"]
     if args.adaptive_silence is not None:

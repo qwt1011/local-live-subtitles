@@ -67,6 +67,7 @@ def build_pipeline(args, engine):
             drop_fillers=not getattr(args, "keep_fillers", False),
             early_final=getattr(args, "early_final", False),
             adaptive_silence=getattr(args, "adaptive_silence", None),
+            final_engine=getattr(args, "final_engine_obj", None),
         )
     raise SystemExit(f"unknown pipeline: {args.pipeline}")
 
@@ -184,7 +185,7 @@ def main():
     parser = argparse.ArgumentParser(description="虚拟时钟回放台架")
     parser.add_argument("--wav", type=Path, required=True)
     parser.add_argument("--pipeline", default="fixed_chunk")
-    parser.add_argument("--engine", default="whisper", choices=("whisper", "sensevoice"))
+    parser.add_argument("--engine", default="whisper", choices=("whisper", "sensevoice", "sherpa"))
     parser.add_argument("--model", default=None,
                         help="whisper 用 tiny/base/small；sensevoice 用模型目录名或路径")
     parser.add_argument("--threads", type=int, default=None, help="sensevoice 线程数")

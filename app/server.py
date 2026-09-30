@@ -54,7 +54,7 @@ MAX_TRANSLATE_QUEUE = 16
 
 
 class Session:
-    def __init__(self, args, engine, translator=None):
+    def __init__(self, args, engine, translator=None, final_engine=None):
         self.args = args
         self.engine = engine
         self.translator = translator
@@ -69,10 +69,19 @@ class Session:
             drop_fillers=not args.keep_fillers,
             early_final=args.early_final,
             adaptive_silence=args.adaptive_silence,
+            final_engine=final_engine,
         )
         self.lock = threading.Lock()
         self.translate_queue = queue.Queue(maxsize=MAX_TRANSLATE_QUEUE)
         self.translate_thread = None
+        # 独立定稿线程（--async-finals，默认关闭）：定稿作业交给另一个线程，识别线程接着刷草稿。
+        # 09-30 实时推流实测（tools/live_bench.py）反而更慢：两个 ONNX 推理并发抢同一批 CPU 核，
+        # Parakeet 中文 p50 从 1.04s 变成 1.87s、p90 从 1.27s 变成 3.89s。保留开关供以后换机器再测。
+        # 定稿不能丢（翻译只吃定稿），所以队列不设上限——它的量只有草稿的约 1/6。
+        self.async_finals = getattr(args, "async_finals", False)
+        self.final_queue = queue.Queue()
+        self.final_thread = None
+        self.stats_lock = threading.Lock()
         # 已定稿并已翻译的句子，供后续句子当上文用（原文 + 译文）
         self.history = []
         self.loop = None
@@ -89,8 +98,31 @@ class Session:
         self.service_seconds = 0.0
         self._warned_no_audio = False
         self.stats = {"events": 0, "dropped": 0}
+        # 边跑边写的草稿日志（见 open_partial_log）。会话正常结束时由 write_log 合成最终文件并删掉它；
+        # 服务窗口被直接关掉时进程会被强杀、走不到 finally，这份草稿就是唯一留下来的记录。
+        self.partial_log = None
+        self.log_path = None   # 会话开始时定下，结束时写到同一个名字
 
     # --- 会话生命周期 -----------------------------------------------------
+
+    def apply_options(self, options):
+        """扩展在 start 消息里带的实验开关，覆盖命令行默认值，只对本会话生效。
+
+        没带 options（老版本扩展、ws_client_test）就沿用命令行参数。
+        """
+        if isinstance(options, dict):
+            with self.lock:
+                if "early_final" in options:
+                    self.pipeline.early_final = bool(options["early_final"])
+                if "adaptive_silence" in options:
+                    value = options["adaptive_silence"]
+                    # 只接受 0.05–0.35 之间的数，其余一律视为关闭
+                    self.pipeline.adaptive_silence = (
+                        float(value) if isinstance(value, (int, float))
+                        and not isinstance(value, bool) and 0.05 <= value <= 0.35
+                        else None)
+        return {"early_final": self.pipeline.early_final,
+                "adaptive_silence": self.pipeline.adaptive_silence}
 
     def bind_loop(self, loop):
         """把识别线程和 asyncio 事件循环接起来。
@@ -108,6 +140,9 @@ class Session:
         self.running = True
         self.thread = threading.Thread(target=self._work_loop, daemon=True)
         self.thread.start()
+        if self.async_finals:
+            self.final_thread = threading.Thread(target=self._final_loop, daemon=True)
+            self.final_thread.start()
         if self.translator is not None:
             self.translate_thread = threading.Thread(target=self._translate_loop, daemon=True)
             self.translate_thread.start()
@@ -118,6 +153,10 @@ class Session:
         self.running = False
         if self.thread:
             self.thread.join(timeout=15)
+        if self.final_thread:
+            # 识别线程退出后，最后几句定稿可能还在队列里，等它们做完再停翻译。
+            self.final_queue.put(None)
+            self.final_thread.join(timeout=15)
         if self.translate_thread:
             # 让翻译线程把队列里剩下的翻完再退出（定稿文本不该因为停止捕获而丢翻译）。
             self.translate_queue.put(None)
@@ -177,17 +216,31 @@ class Session:
 
             self._warned_no_audio = True   # 已经有活干，不必再警告
 
-            began = time.perf_counter()
-            events = self.pipeline.run_job(job)
-            finished = time.perf_counter()
+            if self.async_finals and job.kind == "final":
+                self.final_queue.put(job)
+                continue
+            self._run(job)
+
+    def _final_loop(self):
+        while True:
+            job = self.final_queue.get()
+            if job is None:
+                break
+            self._run(job)
+
+    def _run(self, job):
+        began = time.perf_counter()
+        events = self.pipeline.run_job(job)
+        finished = time.perf_counter()
+        with self.stats_lock:
             self.service_seconds += finished - began
-            for event in events:
-                # finish_wall 与音频位置同一条时间轴（都相对会话开始），
-                # 这样 tools/metrics.py 的口径可以直接套用真实会话。
-                event.service_seconds = finished - began
-                event.finish_wall = finished - self.started_at
-                self._emit(event)
-                self._maybe_translate(event)
+        for event in events:
+            # finish_wall 与音频位置同一条时间轴（都相对会话开始），
+            # 这样 tools/metrics.py 的口径可以直接套用真实会话。
+            event.service_seconds = finished - began
+            event.finish_wall = finished - self.started_at
+            self._emit(event)
+            self._maybe_translate(event)
 
     def _maybe_translate(self, event):
         """只翻译定稿文本。翻译不是关键路径，队列满了就丢，绝不拖累识别。"""
@@ -200,9 +253,24 @@ class Session:
         except queue.Full:
             self.translate_dropped += 1
 
+    def open_partial_log(self, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.partial_log = path.open("w", encoding="utf-8", buffering=1)   # 行缓冲：每行立即落盘
+
+    def close_partial_log(self):
+        if self.partial_log is not None:
+            self.partial_log.close()
+            Path(self.partial_log.name).unlink(missing_ok=True)
+            self.partial_log = None
+
     def _emit(self, event):
         row = event.to_dict()
         self.rows.append(row)
+        if self.partial_log is not None:
+            try:
+                self.partial_log.write(json.dumps(row, ensure_ascii=False) + "\n")
+            except (OSError, ValueError):
+                pass
         payload = {"type": "event", **row,
                    "latency": round(event.latency, 3),
                    "display_latency": round(event.latency, 3)}
@@ -262,7 +330,8 @@ class Session:
                 finish_wall=time.perf_counter() - self.started_at,
                 detail={"translation": True, "translate_seconds": round(elapsed, 3)},
             )
-            self.service_seconds += elapsed
+            with self.stats_lock:
+                self.service_seconds += elapsed
             self._emit(event)
 
     def _offer(self, payload):
@@ -306,14 +375,43 @@ class Session:
         }
 
 
+LOG_KEEP = 20
+
+
+def session_log_path(args):
+    """--log 给的是固定文件；--log-dir 给的是目录，每次会话按开始时间命名一份。"""
+    if args.log:
+        return Path(args.log)
+    if args.log_dir:
+        return Path(args.log_dir) / time.strftime("live_%Y%m%d_%H%M%S.jsonl")
+    return None
+
+
+def prune_logs(directory, keep=LOG_KEEP):
+    """--log-dir 下只保留最近 keep 份，更早的删掉（文件名带时间，按名字排序即按时间）。"""
+    logs = sorted(Path(directory).glob("live_*.jsonl"))
+    for old in logs[:-keep]:
+        old.unlink(missing_ok=True)
+
+
 def write_log(path, args, session):
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        # 同一个服务里的多次会话各写一份，别互相覆盖：live.jsonl → live_2.jsonl …
+        n = 2
+        while (candidate := path.with_name(f"{path.stem}_{n}{path.suffix}")).exists():
+            n += 1
+        path = candidate
     header = {
         "type": "header",
         "source": "live-session",
         "pipeline": "open_utterance",
         "engine": args.engine,
         "model": args.model,
+        "final_engine": args.final_engine,
+        "final_model": args.final_model,
+        "early_final": session.pipeline.early_final,
+        "adaptive_silence": session.pipeline.adaptive_silence,
         **session.summary(),
     }
     with path.open("w", encoding="utf-8") as handle:
@@ -323,8 +421,34 @@ def write_log(path, args, session):
     print(f"会话日志已写入 {path}", flush=True)
 
 
-async def handle(websocket, args, engine, translator=None):
-    session = Session(args, engine, translator)
+class Activity:
+    """闲置退出用：记录正在采集的会话数和最后一次采集结束的时间。
+
+    只有真正推过音频的会话才算"活动"——popup 每 2 秒一次的状态探测不能让服务永远不退出。
+    """
+
+    def __init__(self):
+        self.capturing = 0
+        self.last_active = time.monotonic()
+
+    def begin(self):
+        self.capturing += 1
+        self.last_active = time.monotonic()
+
+    def end(self):
+        self.capturing = max(0, self.capturing - 1)
+        self.last_active = time.monotonic()
+
+    def idle_seconds(self):
+        return 0.0 if self.capturing else time.monotonic() - self.last_active
+
+
+ACTIVITY = Activity()
+
+
+async def handle(websocket, args, engine, translator=None, final_engine=None):
+    session = Session(args, engine, translator, final_engine)
+    capturing = False
     session.bind_loop(asyncio.get_running_loop())
     print(f"客户端已连接，engine={args.engine} model={args.model}", flush=True)
     sender = asyncio.create_task(_sender(websocket, session))
@@ -339,10 +463,21 @@ async def handle(websocket, args, engine, translator=None):
                 continue
             kind = control.get("type")
             if kind == "start":
+                applied = session.apply_options(control.get("options"))
+                if session.log_path is None:
+                    session.log_path = session_log_path(args)
+                    if session.log_path is not None:
+                        session.open_partial_log(
+                            session.log_path.with_name(session.log_path.name + ".partial"))
                 session.start()
+                if not capturing:
+                    capturing = True
+                    ACTIVITY.begin()
                 # 这条日志把"扩展真的开始推流了"和"只是 popup 在探测"区分开，
                 # 排查时非常关键（探测只发 ping，不会走到这里）。
-                print(f"采集开始：language={control.get('language', args.language)}", flush=True)
+                print(f"采集开始：language={control.get('language', args.language)} "
+                      f"early_final={applied['early_final']} "
+                      f"adaptive_silence={applied['adaptive_silence']}", flush=True)
                 await websocket.send(json.dumps({
                     "type": "status", "state": "listening",
                     "engine": args.engine, "model": args.model,
@@ -357,6 +492,10 @@ async def handle(websocket, args, engine, translator=None):
                      "engine": args.engine, "model": args.model,
                      "language": args.language,
                      "translate": translator is not None,
+                     "translate_engine": args.translate_engine if translator is not None else None,
+                     "final_engine": args.final_engine, "final_model": args.final_model,
+                     "idle_exit": args.idle_exit,
+                     "capturing_sessions": ACTIVITY.capturing,
                      "sample_rate": SAMPLE_RATE,
                      **session.summary()},
                     ensure_ascii=False))
@@ -365,12 +504,20 @@ async def handle(websocket, args, engine, translator=None):
     except Exception as exc:  # 客户端断开等
         print(f"会话异常：{type(exc).__name__}: {exc}", flush=True)
     finally:
+        if capturing:
+            ACTIVITY.end()
         session.stop()
         sender.cancel()
         summary = session.summary()
         print(f"会话结束：{json.dumps(summary, ensure_ascii=False)}", flush=True)
-        if args.log:
-            write_log(Path(args.log), args, session)
+        # popup 的"检查本地服务"也是一次连接：没收到音频就别写日志，
+        # 否则它会覆盖掉刚才那次真实会话（09-29 用户实测的日志就是这样丢的）。
+        log_path = session.log_path or session_log_path(args)
+        if log_path is not None and session.received_samples > 0:
+            write_log(log_path, args, session)
+            if not args.log:
+                prune_logs(args.log_dir)
+        session.close_partial_log()
 
 
 async def _sender(websocket, session):
@@ -392,6 +539,14 @@ async def main_async(args):
                            threads=args.threads)
     print(f"引擎就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
 
+    final_engine = None
+    if args.final_engine:
+        print(f"加载定稿引擎 {args.final_engine} / {args.final_model or '(默认)'} ...", flush=True)
+        began = time.perf_counter()
+        final_engine = create_engine(args.final_engine, args.final_model, language=args.language,
+                                     threads=args.final_threads)
+        print(f"定稿引擎就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
+
     translator = None
     if args.translate:
         from .translate.factory import create_translator
@@ -403,12 +558,20 @@ async def main_async(args):
         print(f"翻译就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
 
     async def handler(websocket):
-        await handle(websocket, args, engine, translator)
+        await handle(websocket, args, engine, translator, final_engine)
 
     async with ws_server.serve(handler, args.host, args.port,
                                max_size=None, ping_interval=20):
         print(f"流式字幕服务已启动：ws://{args.host}:{args.port}", flush=True)
         print("只监听回环地址，不接收局域网连接。", flush=True)
+        if args.idle_exit and args.idle_exit > 0:
+            span = (f"{args.idle_exit / 60:.0f} 分钟" if args.idle_exit >= 60
+                    else f"{args.idle_exit:.0f} 秒")
+            print(f"闲置 {span}（没有任何采集）后自动退出。", flush=True)
+            while ACTIVITY.idle_seconds() < args.idle_exit:
+                await asyncio.sleep(min(5, args.idle_exit / 4))
+            print(f"已闲置 {span}，自动退出以释放内存。", flush=True)
+            return
         await asyncio.Future()
 
 
@@ -420,6 +583,14 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--language", default="ja")
     parser.add_argument("--threads", type=int, default=None)
+    parser.add_argument("--final-engine", default=None, choices=ENGINES,
+                        help="定稿改用另一个引擎（草稿仍用 --engine），例如 sherpa")
+    parser.add_argument("--final-model", default=None, help="--final-engine 的模型，例如 parakeet-ja")
+    parser.add_argument("--final-threads", type=int, default=None)
+    parser.add_argument("--idle-exit", type=float, default=0, metavar="SECONDS",
+                        help="连续这么多秒没有任何采集就自动退出（0 = 不退出；扩展一键启动时默认 1800）")
+    parser.add_argument("--async-finals", action="store_true",
+                        help="实验：定稿放进独立线程（09-30 实测因抢 CPU 反而更慢，默认关闭）")
     parser.add_argument("--min-speech", type=float, default=0.4)
     parser.add_argument("--min-silence", type=float, default=0.35)
     parser.add_argument("--partial-step", type=float, default=0.5)
@@ -453,6 +624,9 @@ def main():
                         help="翻译线程数（指令模型用 torch，这个值直接影响其速度）")
     parser.add_argument("--log", type=Path, default=None,
                         help="把本次会话落成台架格式的 JSONL，可直接用 tools/metrics.py 分析")
+    parser.add_argument("--log-dir", type=Path, default=None,
+                        help=f"每次会话各写一份 live_<时间>.jsonl 到这个目录，只保留最近 {LOG_KEEP} 份"
+                             "（--log 优先）")
     args = parser.parse_args()
     if args.model is None:
         from .asr.factory import DEFAULT_MODEL
