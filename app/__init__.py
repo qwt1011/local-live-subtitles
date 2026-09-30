@@ -1,6 +1,6 @@
 """ASMR 实时字幕的流式内核。
 
-分层（详见 ARCHITECTURE_REVIEW.md 第 4 节）：
+分层（详见 docs/ARCHITECTURE_REVIEW.md 第 4 节）：
 
     audio/      环形缓冲、VAD 门控、分段
     asr/        识别引擎（协议 + faster-whisper 实现；后续可加 SenseVoice）

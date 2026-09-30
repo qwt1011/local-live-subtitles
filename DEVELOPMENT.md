@@ -1,154 +1,93 @@
-# YouTube 日语/英语实时中文字幕项目
+# 开发说明
 
-## 1. 项目目标
+面向想改代码的人：架构、关键取舍和它们的依据、怎么评测。实验过程和被推翻的结论在 [docs/WORKLOG.md](docs/WORKLOG.md)。
 
-制作一个 Windows 11 上使用的 YouTube 实时字幕工具，主要服务于：
+## 架构
 
-- 英语相关视频的听读和理解
-- 日语 ASMR / 情境语音的辅助理解
+```
+extension/
+  popup.*        弹窗：状态探测、一键启动、设置
+  background.js  路由：取流、创建 offscreen、把字幕事件转给标签页、补注入字幕脚本、工具栏角标
+  offscreen.js   采集：tabCapture → AudioWorklet（pcm-worklet.js）→ 16 kHz s16le → WebSocket
+  content.js     覆盖层：按 segment_id + revision 渲染 3 行字幕，全屏 / 本地文件 popover 顶层
+  shared.js      纯逻辑（分帧、字幕状态机、探测），Node 下可测
 
-第一阶段优先实现 Edge 和 Chrome 浏览器中的 YouTube 字幕覆盖层，后续再评估是否发展为独立 PC 软件。
+tools/native_host.py   一键启动宿主（Chrome Native Messaging）：status / start / restart / stop / log
+tools/run_service.py   启动前预检 + 选识别模型（--asr parakeet|sensevoice|hybrid）
 
-## 2. 已确认需求
-
-- 操作系统：Windows 11
-- 浏览器：Microsoft Edge、Google Chrome
-- 第一阶段网站范围：YouTube
-- 输入语言：英语、日语
-- 输出语言：中文
-- 字幕模式：只显示中文、原文+中文、只显示原文
-- 目标：尽量接近 1.5 秒延迟
-- 预算：优先完全免费
-- 隐私：优先本地处理，不上传音频
-- 参考视频：`https://www.youtube.com/watch?v=CjMnmE37Q5k`
-- 当前测试文件：`C:\text\实验\asmr_transcription\【貞操逆転⧸女性上位】治安最悪な貞操観念逆転世界に迷い込んで即襲われる貴方の話【男性向けシチュエーションボイス⧸ASMR】#白石香月 [CjMnmE37Q5k].mp4`
-- 测试区间：视频 `02:30–03:00`，先使用 30 秒片段
-
-## 3. 设备判断
-
-根据用户提供的截图：
-
-- CPU：Intel Core i5-13500H，12 核
-- GPU：Intel Iris Xe Graphics，约 1GB 共享显存
-- 内存：16GB（截图信息，系统 API 尚未成功读取）
-- 硬盘：约 1TB NVMe SSD
-
-设备适合 CPU INT8 运行 `faster-whisper` 的 `tiny`、`base`、`small` 模型；不建议把 `medium` 或 `large` 作为实时方案。最终模型需要用 ASMR 片段实测。
-
-## 4. 技术方向
-
-```text
-Chrome / Edge 扩展
-  - 捕获当前 YouTube 标签页音频
-  - 显示字幕覆盖层
-  - 提供字幕模式和样式设置
-          | localhost WebSocket / HTTP
-Windows 本地服务
-  - 音频缓冲、增益、轻度降噪、VAD
-  - faster-whisper 本地语音识别
-  - 本地中文翻译模块
-  - 返回中间结果和最终结果
+app/server.py          会话：识别线程 + 翻译线程；事件回推；会话日志；闲置退出
+app/pipelines/open_utterance.py
+                       流式内核：VAD 找句子边界，开放段每 0.5s 重解码一次出草稿，
+                       静音 0.35s 定稿（或 10s 强制切断）；语气词过滤；两个实验开关
+app/asr/               sherpa_offline_engine（Parakeet）/ sensevoice_engine / faster_whisper_engine（对照）
+app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备选）/ nllb_ct2（已证实不可用，留作记录）
 ```
 
-浏览器扩展不直接运行大型模型，以降低浏览器兼容性和资源占用问题。
+### 协议
 
-## 5. 现实限制
+客户端先发 `{"type":"start","language":"ja","options":{...}}`，然后连续发 100ms 一帧的 16 kHz 单声道 s16le 裸 PCM。
+客户端**不做任何分段决策**。服务端回 `{"type":"event","segment_id","revision","text","is_final","translation"?,...}`：
 
-日语耳语 ASMR 对实时识别很困难，原因包括低音量、长停顿、呼吸声、拟声词和不完整句子。应分别测量：
+- 同一句话的草稿、定稿、译文共用一个 `segment_id`，`revision` 单调递增，渲染端只接受更大的 revision，所以字幕不会回跳；
+- 译文是定稿之后的下一个 revision，原文先显示，中文原地补上；
+- `{"type":"ping"}` 返回服务状态（引擎、模型、翻译、闲置设置），弹窗靠它探测。
 
-1. 原文识别延迟
-2. 原文识别准确率
-3. 中文翻译额外延迟
+`options` 目前有两个实验开关：`early_final`、`adaptive_silence`（见下文）。
 
-原文可以争取 1.0–1.5 秒；中文翻译允许比原文晚一些。字幕需要支持中间结果被最终结果替换，以减少延迟和跳动之间的冲突。
+## 关键取舍与依据
 
-## 6. 当前本地测试工具
+每一条都在评测集或真实会话上量过，数字出处在 `runs/`，过程在 `docs/WORKLOG.md`。
 
-目录：`C:\text\实验\asmr_transcription`
+| 决定 | 依据 |
+|---|---|
+| **不用 Whisper 做实时识别** | 每次调用有约 1 秒固定成本（30 秒补齐），与音频长度无关；温度回退阶梯会让单块从 2.3s 涨到 6.6s（`docs/BENCHMARK_RESULTS.md` 第 2–5 节） |
+| **VAD 断句 + 开放段重解码**，而不是固定分块 | 固定分块要么切断词、要么等太久；重解码让草稿跟着说话走，定稿时整句解码一次 |
+| **默认识别 Parakeet-ja** | 评测集 CER 0.066，SenseVoice 0.090；译文与参考译文的 chrF 中位 0.86 vs 0.76。实时推流下中文 p50 1.04s，与 SenseVoice（1.22s）相当（`runs/eval/parakeet_ja_clean2`、`runs/live_bench/`） |
+| Parakeet 输出要清洗 | 它把笑声转成「フフフ」、句中用空格代替标点、句末不补「。」。少了句号 Hy-MT 的译法就会变，清洗前译文反而比 SenseVoice 差（`app/asr/sherpa_offline_engine.py::clean_text`） |
+| SenseVoice 去掉词间空格 | 它会在日语词之间插空格，翻译模型当成断句，6 句里有 3 句因此译错（`join_cjk`） |
+| **翻译用 Hy-MT2-1.8B** | Qwen2.5-0.5B 快一倍，但 22 句真实定稿里 6–7 句严重错误；NLLB 的目标语言标记在 CTranslate2 下被忽略（`docs/BENCHMARK_RESULTS.md` 第 12 节） |
+| 翻译不带上下文、用官方默认提示词 | 加上下文和"更清楚"的提示词离线看着更好，真实 ASR 输入上明确更差：错误会沿上下文传播 |
+| 只翻译定稿，放独立线程 | 翻译不占原文延迟；草稿变化太快，翻了也白翻 |
+| 识别不拆成草稿/定稿两个线程 | 实测两路 ONNX 并发抢核，中文 p90 从 1.27s 变成 3.89s（`--async-finals`，默认关） |
+| 字幕 3 行 | 译文平均在定稿后 2–3 秒到，2 行时长句的译文常在到达前被挤出屏幕 |
+| 语气词整句过滤 | 「う」「へへ」「ふふふ」单独成句时置空，CER 0.093 → 0.071 |
+| 静音阈值保持 0.35s | 0.5 / 0.6 的 CER 差异在噪声内，但定稿延迟变长 |
 
-- `benchmark.py`：使用 CPU INT8 对音频进行识别并输出时间戳、检测语言、模型加载时间和识别耗时
-- `requirements.txt`：`faster-whisper` 依赖
-- `README.md`：基础使用说明
+### 实验开关（默认关闭）
 
-已安装并验证：
+- `early_final`（粘连句提前定稿）：两句话之间停顿不到 0.35s 被 VAD 粘在一起时，用 token 时间戳把前半句切出来先定稿；
+- `adaptive_silence`（句末短静音定稿）：草稿以ね/よ/わ/かしら/？结尾时，静音 0.2s 就定稿；
+- `hybrid` 识别：草稿 SenseVoice、定稿 Parakeet。
 
-- `faster-whisper 1.2.1`
-- `ctranslate2 4.8.1`
-- `av 18.1.0`
-- `yt-dlp 2026.7.4`
-- `imageio-ffmpeg 0.6.0`
+三个都做过评测，收益在噪声范围内或更差，所以默认关闭。长句延迟是结构性的：要等这句话说完。
 
-## 7. 下一步测试顺序
+## 评测
 
-1. 从已下载的 MP4 中提取 `02:30–03:00` 音频片段。
-2. 使用 `base` 模型测试日语识别速度和文本。
-3. 使用 `small` 模型重复测试。
-4. 比较实时速度、文本质量和 CPU/内存占用。
-5. 再加入中文翻译，测量翻译带来的额外延迟。
-6. 根据测试结果确定实时模型和音频预处理方案。
-7. 开始开发 YouTube 字幕扩展。
+**评测集**（`eval/`）：同一个 ASMR 视频的 5 段 × 60 秒，按音量和语音密度挑选（最轻、稀疏、密集等）。
+参考文本是 whisper large-v3 与 small 交叉比对后语义裁定的（`status: consensus`），**没有人工听写**，
+适合比较两个配置的相对好坏，不代表绝对准确率。音频不入库，用 `tools/build_eval.py` 从源视频切出。
 
-## 8. 暂不实现
+**三种台架**，按"越接近真实越慢"排列：
 
-- 多网站支持
-- 云端 API
-- 独立桌面 GUI
-- 字幕历史、导出和词汇学习功能
-- medium/large 大模型实时运行
+| 工具 | 测什么 | 注意 |
+|---|---|---|
+| `tools/replay.py` / `tools/eval_suite.py` | 离线回放：虚拟时钟按 1x 喂音频，计算耗时计入墙钟。输出字错率、延迟分位、cpu_ratio | 单线程顺序执行，量不出并发改动；单段 CER 单次波动约 ±0.02，要 `--repeat 3` |
+| `tools/asr_ceiling.py` | 识别错误拖累了多少翻译：ASR 定稿与参考原文分别翻译，比较译文 chrF | 翻译模型本身的误差不在比较范围内 |
+| `tools/live_bench.py` | 真起服务、按 1x 推流、按客户端收到的墙钟算，含翻译抢 CPU | 最接近浏览器里的体验；受机器负载影响大 |
 
-这些功能在核心识别链路验证后再评估。
+真实会话日志（`runs/live/`，与台架同格式）可以用 `tools/metrics.py`、`tools/diag_display.py` 复盘。
 
-## 10. 首轮测试记录
+## 测试
 
-样本：`sample_0230_0300.wav`，来源视频 `02:30–03:00`，时长 30 秒。
+```powershell
+python tests\test_open_utterance.py      # 流水线：语气词、断句、提前定稿、混合引擎、Parakeet 清洗
+node tests\test_extension_logic.js       # 扩展：分帧、字幕状态机、挂载点、本地媒体识别
+node tests\test_probe_service.js         # 需要 8766 上有服务
+node tests\test_ws_protocol.js           # 需要服务 + sample_0230_0300.wav
+```
 
-`faster-whisper base`（CPU、INT8、强制日语）：
+## 改扩展代码后怎么生效
 
-- 模型加载：33.57 秒（首次加载）
-- 识别耗时：1.21 秒
-- 检测语言：日语，概率 1.000
-- 实时系数：约 24.8 倍速（30 秒音频 / 1.21 秒）
-
-结论：在这段样本上，CPU 识别速度明显满足 1.5 秒目标。文本存在若干听写错误，需与 `small` 输出对比后再判断是否值得增加模型规模。当前 1.5 秒目标只代表识别阶段，中文翻译和实时音频分块仍需单独测量。
-
-`faster-whisper small`（CPU、INT8、强制日语）：
-
-- 模型加载：159.95 秒（首次加载）
-- 识别耗时：9.54 秒
-- 检测语言：日语，概率 1.000
-- 实时倍率：约 3.1 倍速（30 秒音频 / 9.54 秒）
-
-对比结论：`small` 修正了 `base` 的多个错误，例如「一人で歩いてるなんて」和「治安が悪くなってきているから」，准确率更适合学习和 ASMR 理解。首次加载时间不应计入每次识别，模型常驻后只需计入识别耗时。第一版建议提供 `base` 低延迟模式和 `small` 高准确率模式；实时分块测试仍需进行，离线 30 秒测试不能完全代表连续流式延迟。
-
-### 流式近似测试（3 秒独立音频块）
-
-使用 `stream_benchmark.py`，模型常驻内存、每 3 秒切一块：
-
-- `small`：总计算 43.60 秒 / 30 秒音频，约 1.45 倍实时；部分块耗时 13.12 秒
-- `base`：总计算 44.84 秒 / 30 秒音频，约 1.50 倍实时；部分块耗时 16–19 秒
-
-这说明独立短块识别会因静音、耳语和句子边界产生不稳定耗时，不能直接作为最终实时架构。需要使用连续音频缓冲、重叠窗口、持久化解码状态和更稳健的语音活动检测。当前结论是：离线识别可用；严格 1.5 秒实时 ASMR 字幕仍需专门的流式实现和进一步调参。
-
-### 重叠窗口测试
-
-使用 `overlap_benchmark.py`，每 1.5 秒推进、分析最近最多 6 秒窗口，`base` 总计算时间为 73.89 秒 / 30 秒音频，约 2.46 倍实时。部分窗口耗时超过 11 秒。重叠窗口改善了句子上下文，但重复计算代价过高，不能直接作为最终实现。
-
-## 9. 验收标准（第一阶段）
-
-- 能处理 YouTube 当前标签页音频
-- 英语和日语可手动选择或自动识别
-- 可切换中文、原文+中文、原文三种模式
-- 字幕不会遮挡主要视频内容，且全屏可用
-- 本地模式下音频不离开电脑
-- 普通英语/日语视频达到可用识别效果
-- ASMR 片段能明确显示延迟和识别质量，不隐瞒其不稳定性
-
-## 11. 当前开发状态
-
-- 已完成本地 Whisper 基准工具和测试记录。
-- 已完成本地常驻 HTTP 识别服务原型。
-- 已完成 Chrome/Edge Manifest V3 扩展骨架、YouTube 字幕覆盖层和标签页音频捕获链路。
-- 已安装 Argos Translate 引擎和 `en -> zh` 语言包。
-- Argos 没有直接的 `ja -> zh` 包，当前设计为 `ja -> en -> zh`。
-- `ja -> en` 语言包因网络超时尚未安装完成。
-- 详细过程和下一步见 `WORKLOG.md`。
+扩展是"已解压"方式加载的，Chrome 不会自动重读文件：`chrome://extensions` 里点本扩展的刷新 → 关掉再打开弹窗 →
+刷新视频页（开始字幕时也会自动补注入字幕脚本）。三块各自的 Console：页面 F12（覆盖层）、扩展卡片上的
+「Service Worker」（路由）、「检查视图 offscreen.html」（采集）。更多排查见 [extension/README.md](extension/README.md)。

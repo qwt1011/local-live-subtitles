@@ -1,6 +1,6 @@
 """模型下载与解包。
 
-评审把"模型资产管理靠手工"列为问题之一（ARCHITECTURE_REVIEW.md S7），
+评审把"模型资产管理靠手工"列为问题之一（docs/ARCHITECTURE_REVIEW.md S7），
 这个脚本是那一条的最小修复：把下载源、校验目标路径、解包位置都写进代码。
 
 **为什么需要镜像列表**：实测 GitHub Releases 直连只有 ~2 KB/s（158 MB 要 20 小时以上），

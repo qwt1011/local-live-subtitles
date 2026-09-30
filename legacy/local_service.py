@@ -1,6 +1,6 @@
 """Local-only Whisper service for the browser extension prototype.
 
-M0 收尾版本。相对原型的改动（每条都有实测依据，详见 ARCHITECTURE_REVIEW.md）：
+M0 收尾版本。相对原型的改动（每条都有实测依据，详见 docs/ARCHITECTURE_REVIEW.md）：
 
 1. VAD 语音时长门控：VAD 后语音不足 `--min-speech` 秒的请求直接返回，不调用模型。
    实测中"最贵且输出幻觉"的调用正是那些 VAD 后只剩 0.66 秒语音、或 0 秒语音的块。

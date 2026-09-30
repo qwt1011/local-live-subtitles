@@ -1,7 +1,7 @@
 /**
  * Content script：字幕覆盖层。
  *
- * 修复的三件事（都来自 ARCHITECTURE_REVIEW.md S3/S6）：
+ * 修复的三件事（都来自 docs/ARCHITECTURE_REVIEW.md S3/S6）：
  *
  * 1. **全屏下字幕消失**。原来覆盖层挂在 document.documentElement 上，
  *    而 YouTube 进入全屏后只有 fullscreen element 及其后代参与渲染，

@@ -1,4 +1,9 @@
-# Work Log
+# 开发日志
+
+按时间顺序记录每一轮的改动、实测数字和结论（包括被推翻的结论）。开头几节是 08 月的英文原型记录，
+09-22 之后是重构（M0–M5）和之后的迭代。**当前状态看 [README](../README.md) 和 [DEVELOPMENT](../DEVELOPMENT.md)**，
+这里只是过程。文中的 `runs/...` 路径都是相对项目根目录；早期脚本已移到 `legacy/`。
+
 
 ## Current status
 
@@ -220,7 +225,7 @@ C:\text\.venv\Scripts\python.exe C:\text\实验\asmr_transcription\local_service
 **渲染层**
 
 - **修全屏消失**：覆盖层改为挂到 `document.fullscreenElement` 内部，并在 `fullscreenchange`
-  时重新挂载。这是 `DEVELOPMENT.md` 验收项"全屏可用"一直没过的原因。
+  时重新挂载。这是 `REQUIREMENTS_0815.md` 验收项"全屏可用"一直没过的原因。
 - **partial / final 两态**：`SubtitleState` 按 `segment_id + revision` 维护，
   partial 原地替换成草稿样式（半透明 + 结尾 `…`），final 到达后原地转成定稿样式，不闪烁；
   **迟到的旧 revision 直接丢弃**——这是字幕回跳的根治办法。
@@ -630,5 +635,10 @@ CER 的差异落在噪声范围内（每段约 ±0.02）。
    - 09-29 已删除冗余模型（4.7GB）：NLLB 全部 4 份、opus-mt-ja-en 两份、SenseVoice 2025。
      `--translate-engine nllb` 现在会报缺模型；需要时用 `tools/setup_models.py` 重新下载。
 3. **ARCHITECTURE_REVIEW.md** 是 09-22 的诊断快照，结论仍成立，但未回填最终达成情况。
+4. **英语 → 中文（下一步）**：弹窗能选英语，但服务端只按启动时的 `--language`（默认 ja）识别，
+   start 消息里的语言没有生效；翻译提示词也是日语专用。SenseVoice 支持英语，可以直接用；
+   要做的是：按会话语言切换识别引擎（英语时强制 SenseVoice 或另选英语模型）和翻译方向，并建英语评测集。
+5. **识别仍可提升**：09-30 候选里还没测 anime-whisper（动画/配音数据微调，只适合定稿时重识别）
+   和 Qwen3-ASR-0.6B；评测集参考文本仍是 consensus，未经人工听写。
 
 

@@ -40,7 +40,7 @@ class NllbTranslator:
                 )
         self.model_dir = directory
         self.beam_size = beam_size
-        # 防重复参数是**必需**的，不是调优。实测（BENCHMARK_RESULTS.md 12.3）：
+        # 防重复参数是**必需**的，不是调优。实测（docs/BENCHMARK_RESULTS.md 12.3）：
         # 不加这些参数，模型会一直复读到 max_decoding_length 才停，
         # 单句从 0.85 秒劣化到 1.65 秒且输出完全不可用。
         # 这和 M0 在 Whisper 上发现的 temperature 回退属于同一类问题。

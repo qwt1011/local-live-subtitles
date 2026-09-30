@@ -45,7 +45,7 @@ CATALOG = {
         "note": "备选翻译模型（09-29 起默认改为 Hy-MT2，见 hy-mt2）。"
                 "翻译改用小参数量指令模型（约 0.95GB）。"
                 "理由：NLLB 那条线的 target_prefix 语言标记机制被实测证明是坏的"
-                "（见 BENCHMARK_RESULTS.md 12.6），而指令模型用自然语言 prompt 表达翻译意图，"
+                "（见 docs/BENCHMARK_RESULTS.md 12.6），而指令模型用自然语言 prompt 表达翻译意图，"
                 "完全绕开这个机制。",
     },
     "nllb-ja-zh-hf": {
@@ -84,7 +84,7 @@ CATALOG = {
         "required": ["model.bin", "sentencepiece.bpe.model"],
         "languages": "ja -> zh（NLLB 用 jpn_Jpan -> zho_Hans），也支持 en -> zh",
         "note": "NLLB-200-distilled-600M 的 CT2 int8 版本，约 600MB，直连不需要中转",
-        "status": "已实测不可用：解码退化成复读源词（详见 BENCHMARK_RESULTS.md 第 12 节）",
+        "status": "已实测不可用：解码退化成复读源词（详见 docs/BENCHMARK_RESULTS.md 第 12 节）",
     },
     "nllb-ja-zh-alt": {
         "kind": "hf",
@@ -122,23 +122,28 @@ CATALOG = {
         "languages": "zh, en, ja, ko, yue",
         "note": "上一版，自带 ja.wav 测试样本，作为回退选项",
     },
+    # 这两个按单文件从 HuggingFace 下（GitHub release 的 tar 包在这台机器上只有几 KB/s）。
     "parakeet-ja": {
-        "kind": "tar",
-        "archive": "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8.tar.bz2",
+        "kind": "hf",
+        "repo": "csukuangfj/sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
         "dir": "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
-        "model": "model.int8.onnx",
-        "tokens": "tokens.txt",
+        "files": ["model.int8.onnx", "tokens.txt"],
+        "required": ["model.int8.onnx", "tokens.txt"],
         "languages": "ja",
-        "note": "NVIDIA Parakeet TDT-CTC 0.6B 日语版（CTC 头），ReazonSpeech 训练，--engine sherpa。09-30 评测候选",
+        "note": "默认识别模型（10-01 起）：NVIDIA Parakeet TDT-CTC 0.6B 日语版（CTC 头），int8 约 625MB，"
+                "--engine sherpa。评测集 CER 0.066（SenseVoice 0.090），见 WORKLOG 09-30。",
     },
     "reazonspeech-k2": {
-        "kind": "tar",
-        "archive": "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2",
+        "kind": "hf",
+        # HF 上没有 k2-fsa 官方的 sherpa 导出，这是第三方重传，文件名与官方 GitHub 包一致
+        "repo": "DeL-TaiseiOzaki/sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
         "dir": "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
-        "model": "encoder-epoch-99-avg-1.int8.onnx",
-        "tokens": "tokens.txt",
+        "files": ["encoder-epoch-99-avg-1.int8.onnx", "decoder-epoch-99-avg-1.onnx",
+                  "joiner-epoch-99-avg-1.onnx", "tokens.txt"],
+        "required": ["encoder-epoch-99-avg-1.int8.onnx", "tokens.txt"],
         "languages": "ja",
-        "note": "ReazonSpeech k2 Zipformer（约 159M，transducer），--engine sherpa。09-30 评测候选",
+        "note": "ReazonSpeech k2 Zipformer（约 159M，transducer），--engine sherpa。"
+                "09-30 评测 CER 0.184 且不出标点，已放弃，仅供对照。",
     },
     "hy-mt2": {
         "kind": "hf",
@@ -148,7 +153,7 @@ CATALOG = {
         "required": ["Hy-MT2-1.8B-Q4_K_M.gguf"],
         "languages": "33 种语言互译，含 ja -> zh",
         "note": "默认翻译模型（09-29 起）：腾讯专用翻译模型，Q4_K_M 约 1.13GB，"
-                "llama-cpp-python 纯 CPU 推理。实测见 WORKLOG.md 待办第 2 条。",
+                "llama-cpp-python 纯 CPU 推理。实测见 docs/WORKLOG.md 待办第 2 条。",
     },
 }
 

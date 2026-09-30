@@ -177,6 +177,10 @@ function render() {
       ? `服务当前用的是 ${ASR_NAMES[runningAsr]}，开始字幕时会重启服务切换（约 10–40 秒）`
       : `服务当前用的是 ${ASR_NAMES[runningAsr]}（手动启动的，不会自动切换）`;
   }
+  if (settings.language === 'en') {
+    // 服务端目前按启动时的 --language（默认 ja）识别，start 消息里的语言没有生效；英语支持见 WORKLOG 待办。
+    hint = '英语还在开发中：当前服务只按日语识别和翻译';
+  }
   ui.asrHint.textContent = hint;
 
   // 高级区
@@ -374,6 +378,7 @@ for (const group of document.querySelectorAll('.segmented')) {
     // mode 改了 content script 通过 storage.onChanged 立即生效，不用发消息。
     save({ [group.dataset.name]: button.dataset.value });
     renderSegments();
+    render();
     button.focus();
   };
   group.addEventListener('click', (event) => {

@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-# 启动这个组合：SenseVoice 识别 + 翻译模型（默认 Hy-MT2，备选 Qwen 指令模型）
+# 启动这个组合：识别模型（默认 Parakeet）+ 翻译模型（默认 Hy-MT2，备选 Qwen 指令模型）
 # 识别模型：名字 → (引擎, catalog 键)。parakeet 是 09-30 评测的候选（CER 0.090 → 0.066，但单次识别约慢 3 倍）。
 ASR_MODEL = {
     "sensevoice": ("sensevoice", "sensevoice-2024"),
@@ -35,7 +35,7 @@ TRANSLATE_MODEL = {
 }
 
 
-def check_models(engine, asr="sensevoice"):
+def check_models(engine, asr="parakeet"):
     """检查模型是否就绪，返回缺失的条目名。"""
     from app.models_catalog import CATALOG, MODELS_DIR, is_ready
 
@@ -109,9 +109,9 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-translate", action="store_true", help="只出原文，不加载翻译模型")
     parser.add_argument("--language", default="ja")
-    parser.add_argument("--asr", default="sensevoice", choices=tuple(ASR_MODEL) + tuple(HYBRID),
-                        help="识别模型：sensevoice（默认）；parakeet（日语专用，更准但更慢）；"
-                             "hybrid（草稿 SenseVoice、定稿 Parakeet）")
+    parser.add_argument("--asr", default="parakeet", choices=tuple(ASR_MODEL) + tuple(HYBRID),
+                        help="识别模型：parakeet（默认，日语专用、更准）；sensevoice（多语言、更快，英语用它）；"
+                             "hybrid（草稿 SenseVoice、定稿 Parakeet，实验）")
     parser.add_argument("--translate-engine", default="hymt", choices=("hymt", "instruct"),
                         help="hymt=Hy-MT2-1.8B（默认）；instruct=Qwen2.5-0.5B（备选）")
     parser.add_argument("--log", default=None, help="把会话事件写入指定 JSONL（覆盖默认的按会话日志）")

@@ -9,7 +9,7 @@
 ## 提示词
 
 逐字使用官方模型卡的"默认翻译"中文模板（目标语言用中文全称），不自己加约束——
-0.5B 那边已经证明给小模型加规则往往更差（BENCHMARK_RESULTS.md 12.8）。
+0.5B 那边已经证明给小模型加规则往往更差（docs/BENCHMARK_RESULTS.md 12.8）。
 
 需要：pip install llama-cpp-python==0.3.35 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 模型：models/Hy-MT2-1.8B-GGUF/Hy-MT2-1.8B-Q4_K_M.gguf

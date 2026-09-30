@@ -278,7 +278,7 @@
    *
    * 必须挂到 fullscreen element 的后代里：YouTube 进入全屏后，只有该元素及其后代参与渲染，
    * 挂在 document.documentElement 上的兄弟节点**完全不会显示**——
-   * 这就是"全屏下字幕消失"的原因（ARCHITECTURE_REVIEW.md S6）。
+   * 这就是"全屏下字幕消失"的原因（docs/ARCHITECTURE_REVIEW.md S6）。
    * 单独抽成函数是为了能在 Node 里测掉，不必真的去开全屏。
    */
   function pickMountParent(doc) {

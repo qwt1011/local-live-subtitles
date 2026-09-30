@@ -2,7 +2,7 @@
  * Offscreen：采集标签页音频 → 转 16 kHz 单声道 PCM → WebSocket 推给本地流式服务。
  *
  * 这一层只做"哑采集"：不分段、不判断句子、不做任何识别相关的决策
- * （ARCHITECTURE_REVIEW.md 第 4 节不变式 1）。
+ * （docs/ARCHITECTURE_REVIEW.md 第 4 节不变式 1）。
  */
 
 const Shared = self.SubtitleShared;

@@ -1,7 +1,7 @@
 # legacy/：早期原型脚本
 
 M0–M1 阶段（09-22 前后）的 Whisper 原型和一次性诊断脚本，已被 `app/`（服务与流水线）和 `tools/`（台架、评测）取代。
-保留在这里，是因为 `BENCHMARK_RESULTS.md` 和 `ARCHITECTURE_REVIEW.md` 里的早期数字出自它们。
+保留在这里，是因为 `docs/BENCHMARK_RESULTS.md` 和 `docs/ARCHITECTURE_REVIEW.md` 里的早期数字出自它们。
 
 | 文件 | 当时的用途 | 现在用什么 |
 |---|---|---|

@@ -1,7 +1,7 @@
 """SenseVoice（sherpa-onnx）识别引擎。
 
 为什么值得测：Whisper 的 encoder 永远对**补齐到 30 秒的 mel** 做一次前向，
-所以它的单次调用成本 ≈ 0.5–1.1 秒且**与音频长度无关**（见 BENCHMARK_RESULTS.md 第 4 节），
+所以它的单次调用成本 ≈ 0.5–1.1 秒且**与音频长度无关**（见 docs/BENCHMARK_RESULTS.md 第 4 节），
 这个结构性固定成本直接封死了"1.5 秒 + 可用质量"的可能性。
 
 SenseVoice-small 是非自回归（CTC）多语言模型，支持 zh/en/ja/ko/yue，

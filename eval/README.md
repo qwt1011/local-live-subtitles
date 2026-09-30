@@ -2,9 +2,12 @@
 
 5 段日语 ASMR，每段 60 秒，都取自同一个参考视频。按整片 VAD 统计挑选，覆盖轻声、最轻、稀疏、密集/响亮几种情况，详见 `manifest.json`。
 
+音频有版权，不入库。先用 yt-dlp 把 `manifest.json` 里 `sources` 的视频下载到项目根目录（文件名与 `path` 一致），然后：
+
 ```powershell
-python tools\build_eval.py                     # 切片到 eval\audio\（wav 不入库，可重新生成）
-python tools\eval_suite.py --model sensevoice-2024 --tag sv2024
+python tools\build_eval.py     # 切出 eval\audio\ 的 5 段，以及早期台架用的 sample_0230_0300.wav
+python tools\eval_suite.py --engine sherpa --model parakeet-ja --tag my_run
+python tools\eval_suite.py --engine sensevoice --model sensevoice-2024 --tag my_sv
 ```
 
 ## 参考文本分级

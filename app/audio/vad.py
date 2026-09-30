@@ -6,7 +6,7 @@ faster-whisper 自带 Silero VAD（ONNX），不需要新依赖。
 - `vad_filter=True` 只是让 Whisper 在内部丢掉非语音片段，**它不能阻止这次调用发生**；
 - `speech_seconds()` 才是"决定要不要花一次调用"的门控。
 
-实测依据（ARCHITECTURE_REVIEW.md 1.3）：VAD 后只剩 0.66 秒语音的块是全场最贵的调用之一，
+实测依据（docs/ARCHITECTURE_REVIEW.md 1.3）：VAD 后只剩 0.66 秒语音的块是全场最贵的调用之一，
 且输出纯幻觉；VAD 后 0 秒语音的块同样被白白调用了一次。
 """
 

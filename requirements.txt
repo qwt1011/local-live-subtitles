@@ -1,4 +1,4 @@
-# 流式字幕引擎（判定实验结论：M2 建在 SenseVoice 上）
+# 识别推理：Parakeet-ja（默认）与 SenseVoice 都经 sherpa-onnx 运行
 # sherpa-onnx 的 sherpa-onnx-core 依赖是 py3-none-* 纯 Python 标签，Python 3.13 可用。
 # 注意：pip 会联网解析 sherpa-onnx-core，在这台机器上会卡住；
 # 安装方式见 tools/setup_models.py 的 docstring（离线 wheel + --find-links）。

@@ -1,5 +1,7 @@
 # M0 / M1 实测结果
 
+> 09-22 至 09-28 的实测记录（M0–M5）。复现命令里的 `sample_0230_0300.wav` 不入库，用 `python tools/build_eval.py` 从源视频切出；`diag_*.py`、`*_benchmark.py` 已移到 `legacy/`。之后的迭代（Hy-MT2、Parakeet、一键启动）见 [WORKLOG.md](WORKLOG.md)。
+
 样本：`sample_0230_0300.wav`（视频 02:30–03:00，16 kHz 单声道，30.0 秒，日语耳语 ASMR）
 机器：i5-13500H，纯 CPU，`int8`，12 核。
 全部数字来自 `tools/replay.py` 虚拟时钟回放，取 3 次重复的**中位数**。

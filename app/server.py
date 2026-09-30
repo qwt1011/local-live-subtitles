@@ -7,7 +7,7 @@
 客户端 → 服务端
   - 文本帧（控制）：`{"type":"start","language":"ja"}` / `{"type":"stop"}` / `{"type":"ping"}`
   - 二进制帧：裸 PCM，**s16le / 16 kHz / 单声道**，连续追加。
-    客户端不做任何分段决策（ARCHITECTURE_REVIEW.md 第 4 节不变式 1）。
+    客户端不做任何分段决策（docs/ARCHITECTURE_REVIEW.md 第 4 节不变式 1）。
 
 服务端 → 客户端（JSON 文本帧）
   - `{"type":"event","segment_id":n,"revision":n,"text":"...","is_final":bool,
@@ -616,7 +616,7 @@ def main():
                         help="翻译时带上前几句作为上文（**默认 0 = 关闭**）。"
                              "离线测试里带上文更好，但用户真实使用实测更差——真实输入是"
                              "含误识别的 ASR 输出，上下文会把错误传播下去。"
-                             "详见 BENCHMARK_RESULTS.md 13.6")
+                             "详见 docs/BENCHMARK_RESULTS.md 13.6")
     parser.add_argument("--translate-style", default="plain",
                         choices=("plain", "instruction", "completion"),
                         help="提示词风格；plain 是用户实测认可的基线")

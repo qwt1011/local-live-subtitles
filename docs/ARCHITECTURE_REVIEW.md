@@ -1,5 +1,7 @@
 # 架构评审：asmr_transcription
 
+> 2026-09-22 的架构诊断快照，保留原样：当时的原型用 Whisper + 固定分块 + HTTP，p50 延迟约 20 秒。文中引用的 `local_service.py`、`diag_*.py` 已移到 `legacy/`，`DEVELOPMENT.md` 已改名为 `REQUIREMENTS_0815.md`。按这份评审重构后的结果见 [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) 和 [WORKLOG.md](WORKLOG.md)。
+
 评审时间：本次会话。评审对象：`C:\text\实验\asmr_transcription` 全部代码与文档。
 所有耗时数据均为本次在本机（i5-13500H / CPU INT8）实测，脚本见 `diag_call_cost.py`、`diag_fallback.py`。
 
@@ -38,13 +40,13 @@ Whisper 的 encoder 永远对补齐到 30 秒的 mel 做一次前向，所以存
 这一条单独就否定了当前架构的两个核心假设：
 
 1. **固定 2 秒分块 = 2 秒硬延迟下限。** 字幕最快也要等到「块被填满（2 s）+ 调用返回（1 s）+ 翻译」≈ 3 s 以后才可能出现。
-   `DEVELOPMENT.md` 第 20 行的「尽量接近 1.5 秒」在当前结构下不是调参问题，而是不可能。
+   `REQUIREMENTS_0815.md` 第 20 行的「尽量接近 1.5 秒」在当前结构下不是调参问题，而是不可能。
 2. **分块越细，总成本越高。** 30 秒音频按 2 秒切 = 15 次调用 = 至少 15 秒算力 = **0.5 倍实时**，
    这还假设零边际成本、零回退、零浪费。真正决定吞吐的是 **"每秒发起多少次调用"**，而不是音频有多长。
 
 ### 1.2 13–19 秒的"重块"，元凶是 temperature 回退，不是"耳语段落太难"
 
-`WORKLOG.md` 第 48 行猜的是「whisper-heavy ASMR sections」，`DEVELOPMENT.md` 第 130 行猜的是「静音、耳语和句子边界」。
+`WORKLOG.md` 第 48 行猜的是「whisper-heavy ASMR sections」，`REQUIREMENTS_0815.md` 第 130 行猜的是「静音、耳语和句子边界」。
 实测（`diag_fallback.py`，30 秒音频切成 3 秒块，base）：
 
 | 配置 | 总耗时 | 实时倍率 | 最慢块 |
@@ -88,7 +90,7 @@ faster-whisper 默认 `temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]`，
 | | 3 秒独立块 | 30 秒整段（有上下文） |
 |---|---|---|
 | chunk 06 | `あなたみたいな人が一人だ` | `あなたみたいな人が一人で歩いてるなん` |
-| chunk 08 | `この辺の最近は**散歩**が悪くなってきているから` | `治安が悪くなってきているから`（`DEVELOPMENT.md:121` 的 small 结果） |
+| chunk 08 | `この辺の最近は**散歩**が悪くなってきているから` | `治安が悪くなってきているから`（`REQUIREMENTS_0815.md:121` 的 small 结果） |
 
 第一行是句子被从中间切断；第二行 `散歩`（散步）vs `治安`（治安）是一个**语义级错误**，
 纯粹的上下文缺失导致。这两处都是当前客户端 2 秒切块策略的直接代价。
@@ -135,7 +137,7 @@ local_service.py  解码 + ASR + 翻译 + 一把全局锁
 
 ### S3（高）没有提交模型：没有序号、没有 revision、没有 partial/final 之分
 
-`DEVELOPMENT.md:63` 明确写了需求「字幕需要支持中间结果被最终结果替换」，
+`REQUIREMENTS_0815.md:63` 明确写了需求「字幕需要支持中间结果被最终结果替换」，
 但架构里**完全没有对应的机制**。
 
 - `offscreen.js:39` 收到响应就直接 `sendMessage`，无序号、无排序；
@@ -171,7 +173,7 @@ local_service.py  解码 + ASR + 翻译 + 一把全局锁
 - **全屏下字幕会消失。** overlay 挂在 `document.documentElement`（`content.js:13`）。
   YouTube 进入全屏后只有 fullscreen element 及其后代参与渲染，挂在 `<html>` 上的兄弟节点不会显示。
   必须挂到 `document.fullscreenElement` 内部，并监听 `fullscreenchange` 重新挂载。
-  这直接违反 `DEVELOPMENT.md:141`「全屏可用」。
+  这直接违反 `REQUIREMENTS_0815.md:141`「全屏可用」。
 - overlay 是 `pointer-events:auto` + 最大 z-index（`content.js:15`）→ 会挡住 YouTube 控件。
 - `content.js` 不读取已存的 `mode`（只在 popup 切换时靠消息同步，第 20 行）→ **刷新页面后模式回落成 bilingual**。
 - 文本直接整体替换，没有 partial→final 的原地更新 → 闪烁、跳动。
@@ -322,9 +324,9 @@ B 可以并行做小规模评测，用数据决定要不要换。
 | **M1** | **离线回放台架**：`replay.py` 把 wav 按实时速度喂给管线，输出 JSONL（逐事件延迟分解 + 文本），`metrics.py` 出 P50/P95；与全量离线转录对照算字错率 | 一条命令给出可对比的延迟/质量数字 | 半天 |
 | **M2** | 流式内核：RingBuffer + VAD 门控 + 开放段重解码 + LocalAgreement-2 提交 + 双通道校正 | **用 M1 台架**调到 P95 < 1.5 s | 2–3 天 |
 | **M3** | 传输替换：AudioWorklet PCM over WebSocket；删掉 MediaRecorder / WebM / 临时文件路径 | 台架 + 浏览器双验证 | 1 天 |
-| **M4** | 渲染：partial/final 两态、不闪烁、挂载到 fullscreenElement、拖动/缩放持久化；popup 显示连接状态与实时延迟 | 对照 `DEVELOPMENT.md` 第 9 节验收清单 | 1 天 |
+| **M4** | 渲染：partial/final 两态、不闪烁、挂载到 fullscreenElement、拖动/缩放持久化；popup 显示连接状态与实时延迟 | 对照 `REQUIREMENTS_0815.md` 第 9 节验收清单 | 1 天 |
 | **M5** | 翻译后端接入（独立 worker，不阻塞 ASR） | 台架测量翻译附加延迟 | 半天 |
-| **M6** | 端到端浏览器验证，更新 `WORKLOG.md` / `DEVELOPMENT.md` | 真实 YouTube 视频 | 半天 |
+| **M6** | 端到端浏览器验证，更新 `WORKLOG.md` / `REQUIREMENTS_0815.md` | 真实 YouTube 视频 | 半天 |
 
 **M1 是整个计划的关键**：有了它，M2 的每一次调参都是"跑一条命令、看 P95 变了多少"，
 而不是"开浏览器感觉一下"。这直接消除第 3 节说的停滞成因。
