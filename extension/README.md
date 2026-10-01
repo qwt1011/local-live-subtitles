@@ -1,4 +1,4 @@
-# 扩展（v0.4.0）
+# 扩展（v0.6.0）
 
 Chrome MV3 扩展：捕获当前标签页音频，推给本地服务，把识别和翻译结果叠在视频上。安装和日常使用见 [根目录 README](../README.md)。
 
@@ -7,6 +7,7 @@ Chrome MV3 扩展：捕获当前标签页音频，推给本地服务，把识别
 | 文件 | 作用 |
 |---|---|
 | `popup.html/css/js` | 弹窗：每 2 秒探测服务、一键启动/停止服务（Native Messaging）、识别模型、显示模式、实验开关 |
+| `panel.js` | 网页内浮窗：字幕进行中的标签页里出现一个可拖动的圆钮，点开就是嵌进来的弹窗（`popup.html?embedded=1`）；拖标题栏移动、拖右下角调宽，Alt+S 显示/隐藏 |
 | `log.html/js` | 服务日志页（经一键启动宿主读 `runs/service.log`） |
 | `background.js` | Service worker：取 streamId、创建 offscreen、把字幕事件转给标签页、补注入字幕脚本、工具栏角标 |
 | `offscreen.html/js` | 采集：`getUserMedia(tab)` → 16 kHz AudioContext → `pcm-worklet.js` → 100ms 一帧 s16le → WebSocket |
@@ -26,7 +27,7 @@ Chrome MV3 扩展：捕获当前标签页音频，推给本地服务，把识别
 3. 视频页不用刷新：开始字幕时如果页面里没有字幕脚本，`background.js` 会自动注入。
 
 **确认加载的是新版本**：扩展卡片上的版本号，或页面 F12 里的
-`[本地字幕] content script 已就绪（v0.4.0）`。
+`[本地字幕] content script 已就绪（v0.6.0）`。
 
 ## 排查：三个 Console 分别在哪
 
@@ -46,6 +47,10 @@ Chrome MV3 扩展：捕获当前标签页音频，推给本地服务，把识别
 | `客户端已连接`，没有下一条 | 只是弹窗在探测（每 2 秒一次，正常） |
 | `采集开始：language=ja` | 扩展真的在推音频了 |
 | `警告：已开始采集，但 3 秒内没有收到任何音频` | 问题在 offscreen / AudioWorklet |
+
+快捷键（`chrome://extensions/shortcuts` 可改）：Alt+Shift+S 打开弹窗（可从这里开始字幕），Alt+S 显示/隐藏网页里的浮窗。
+Chrome 规定开始捕获必须由扩展自己的界面触发：浮窗里嵌的是扩展页面，所以可以直接点；但浮窗只在字幕进行中的标签页出现，
+第一次开始仍要点扩展图标或按 Alt+Shift+S。
 
 常见问题：
 

@@ -14,6 +14,10 @@
 
 const Shared = self.SubtitleShared;
 const store = Shared.createStore('popup');
+// 同一个页面也作为网页里的浮窗内容（content.js 用 iframe 嵌入 popup.html?embedded=1）。
+// 嵌入时"当前标签页"是浮窗所在的那一页，而不是浏览器里正在看的那一页。
+const EMBEDDED = new URLSearchParams(location.search).has('embedded');
+if (EMBEDDED) document.documentElement.classList.add('embedded');
 const HOST = 'local.live_subtitles';
 
 const $ = (selector) => document.querySelector(selector);
@@ -80,6 +84,7 @@ const view = {
   busy: '',               // 正在进行的操作说明（启动服务、重启…），非空时主按钮转圈
   lastError: '',
   tab: null,
+  captureTab: null,       // 正在捕获的标签页（可能不是当前页）
   fileAccessMissing: false,
 };
 
@@ -125,6 +130,16 @@ function formatSeconds(total) {
   return `${m}:${s}`;
 }
 
+/** 正在捕获，但捕获的不是当前这一页。 */
+function capturingElsewhere() {
+  return Boolean(view.capturing && view.captureTab && view.tab && view.captureTab.id !== view.tab.id);
+}
+
+function shortTitle(title) {
+  const text = (title || '未命名').replace(/ - YouTube$/, '');
+  return text.length > 18 ? `${text.slice(0, 18)}…` : text;
+}
+
 function capturableTab(tab) {
   return Boolean(tab && tab.url && /^(https?|file):/.test(tab.url));
 }
@@ -150,8 +165,10 @@ function render() {
   } else if (running) {
     const translate = probe.translate
       ? (TRANSLATE_NAMES[probe.translate_engine] || '翻译已开') : '未开翻译';
+    const where = view.capturing && capturingElsewhere() && view.captureTab
+      ? `正在捕获另一个标签页：${shortTitle(view.captureTab.title)}` : '';
     setStatus('ok', view.capturing ? '字幕进行中' : '服务运行中',
-      `${ASR_NAMES[runningAsr] || probe.model || '?'} · ${translate}`);
+      where || `${ASR_NAMES[runningAsr] || probe.model || '?'} · ${translate}`);
   } else {
     setStatus('', '服务未启动',
       host ? '点下方按钮会自动启动' : '一键启动未安装，需先手动运行启动脚本');
@@ -178,6 +195,9 @@ function render() {
   if (busy) {
     ui.primaryLabel.textContent = busy;
     button.disabled = true;
+  } else if (view.capturing && capturingElsewhere()) {
+    ui.primaryLabel.textContent = '⇄ 切换到这个标签页';
+    button.disabled = !capturableTab(view.tab);
   } else if (view.capturing) {
     ui.primaryLabel.textContent = '■ 停止字幕';
     button.disabled = false;
@@ -241,8 +261,12 @@ async function refresh() {
   try {
     const [probe, stored] = await Promise.all([
       Shared.probeService(Shared.WS_URL, 1500),
-      store.get(['capturing', 'captureStatus']),
+      store.get(['capturing', 'captureStatus', 'activeTabId']),
     ]);
+    view.captureTab = null;
+    if (stored.activeTabId) {
+      view.captureTab = await chrome.tabs.get(stored.activeTabId).catch(() => null);
+    }
     view.probe = probe;
     view.capturing = Boolean(stored.capturing);
     view.capture = stored.captureStatus || null;
@@ -361,7 +385,11 @@ async function stopSubtitles() {
 
 ui.primary.addEventListener('click', async () => {
   view.lastError = '';
-  if (view.capturing) {
+  if (view.capturing && capturingElsewhere()) {
+    // 先停掉旧标签页的捕获，再开始这一页（startCapture 内部也会先 stop，这里显式做是为了状态立即更新）
+    await stopSubtitles();
+    await startSubtitles();
+  } else if (view.capturing) {
     await stopSubtitles();
   } else {
     await startSubtitles();
@@ -444,7 +472,13 @@ async function init() {
   ui.adaptiveSilence.checked = settings.adaptiveSilence;
   renderSegments();
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let tab = null;
+  if (EMBEDDED) {
+    // iframe 里 tabs.query 拿到的是浏览器当前激活的页，不一定是浮窗所在页；问 background 要发送方的标签页
+    tab = await chrome.runtime.sendMessage({ type: 'whoami' }).catch(() => null);
+  } else {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  }
   view.tab = tab || null;
   if (tab && tab.url && tab.url.startsWith('file:')) {
     // 没开「允许访问文件网址」时字幕脚本注入不进去：采集照样能跑，但页面上什么都不显示。
@@ -458,6 +492,12 @@ async function init() {
   refreshHost();
   await refresh();
   setInterval(() => { if (!view.busy) refresh(); }, 2000);
+  if (EMBEDDED) {
+    const report = () => parent.postMessage(
+      { lls: 'panel-height', height: document.documentElement.scrollHeight }, '*');
+    new ResizeObserver(report).observe(document.body);
+    report();
+  }
 }
 
 init();

@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Local Live Subtitles",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "本地日语/英语实时中文字幕（音频不出本机）",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "storage", "tabCapture", "offscreen", "scripting", "nativeMessaging"],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabCapture",
+    "offscreen",
+    "scripting",
+    "nativeMessaging"
+  ],
   "host_permissions": [
     "https://www.youtube.com/*",
     "http://127.0.0.1:8766/*",
@@ -13,19 +20,62 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:8766 http://127.0.0.1:8766 ws://localhost:8766"
   },
-  "action": { "default_popup": "popup.html" },
-  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
   "web_accessible_resources": [
     {
-      "resources": ["pcm-worklet.js"],
-      "matches": ["https://www.youtube.com/*"]
+      "resources": [
+        "pcm-worklet.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "popup.html",
+        "popup.css",
+        "popup.js",
+        "shared.js",
+        "log.html",
+        "log.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "file:///*"
+      ]
     }
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*", "file:///*"],
-      "js": ["shared.js", "content.js"],
+      "matches": [
+        "https://www.youtube.com/*",
+        "file:///*"
+      ],
+      "js": [
+        "shared.js",
+        "content.js",
+        "panel.js"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "打开扩展弹窗（可以从这里开始字幕）"
+    },
+    "toggle-panel": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "显示 / 隐藏网页里的字幕浮窗"
+    }
+  }
 }

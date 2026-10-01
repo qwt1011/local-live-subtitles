@@ -335,3 +335,8 @@ select.compact { width: auto; flex: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 嵌入网页浮窗（popup.html?embedded=1）：宽度跟随浮窗，背景透明交给外层面板 */
+.embedded body { width: auto; padding: 10px 12px 12px; }
+.embedded h1 { display: none; }
+.embedded .top { justify-content: flex-end; margin-bottom: 8px; }

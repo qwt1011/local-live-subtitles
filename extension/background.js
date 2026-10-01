@@ -44,9 +44,26 @@ async function getState() {
   return store.get([SESSION_KEYS.activeTabId, SESSION_KEYS.capturing]);
 }
 
+// 快捷键 Alt+S：让当前标签页的浮窗显示/隐藏（浮窗只在字幕进行中的标签页存在）
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'toggle-panel') return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab && tab.id) chrome.tabs.sendMessage(tab.id, { type: 'toggle-panel' }).catch(() => {});
+});
+
 // popup 也会直接写 capturing（停止、服务闲置退出后的纠正）：角标跟着 storage 走，而不是只跟 setState。
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'session' && changes.capturing) setBadge(Boolean(changes.capturing.newValue));
+// 同时通知网页里的浮窗（panel.js）：content script 默认读不到 storage.session，所以由这里转告。
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'session' || !(changes.capturing || changes.activeTabId || changes.captureStatus)) return;
+  if (changes.capturing) setBadge(Boolean(changes.capturing.newValue));
+  const state = await getState();
+  const tabs = new Set([state[SESSION_KEYS.activeTabId]]);
+  if (changes.activeTabId && changes.activeTabId.oldValue) tabs.add(changes.activeTabId.oldValue);
+  const status = changes.captureStatus ? changes.captureStatus.newValue : undefined;
+  for (const tabId of tabs) {
+    if (!tabId) continue;
+    chrome.tabs.sendMessage(tabId, { type: 'capture-state', state, status }).catch(() => {});
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -72,6 +89,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true });
       } else if (message.type === 'query-state') {
         sendResponse(await getState());
+      } else if (message.type === 'whoami') {
+        // 浮窗 iframe 问"我在哪个标签页里"：sender.tab 就是嵌着它的那一页
+        sendResponse(_sender.tab ? { id: _sender.tab.id, url: _sender.tab.url, title: _sender.tab.title } : null);
       }
     } catch (error) {
       sendResponse({ ok: false, error: String(error) });
@@ -137,7 +157,7 @@ async function ensureOverlay(tabId) {
   const alive = await chrome.tabs.sendMessage(tabId, { type: 'overlay-ping' }).catch(() => null);
   if (alive && alive.ok) return;
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['shared.js', 'content.js'] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['shared.js', 'content.js', 'panel.js'] });
     console.log('[本地字幕] 标签页里没有字幕脚本，已补注入');
   } catch (error) {
     // 例如 chrome:// 页面、或本地文件但没开「允许访问文件网址」：采集照常进行，只是没有覆盖层。
