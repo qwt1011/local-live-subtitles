@@ -286,7 +286,7 @@
     document.addEventListener('fullscreenchange', mount, true);
     document.addEventListener('webkitfullscreenchange', mount, true);
     chrome.runtime.onMessage.addListener(handleMessage);
-    console.log(`[本地字幕] content script 已就绪（v0.4.0${standaloneMedia ? '，本地媒体' : ''}）`);
+    console.log(`[本地字幕] content script 已就绪（v0.5.0${standaloneMedia ? '，本地媒体' : ''}）`);
   }
 
   init();

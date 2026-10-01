@@ -1,13 +1,13 @@
 # 本地实时字幕（Local Live Subtitles）
 
-在 Chrome 里给正在播放的日语视频实时加中文字幕：识别和翻译都在本机 CPU 上跑，**音频不出本机**。
+在 Chrome 里给正在播放的日语或英语视频实时加中文字幕：识别和翻译都在本机 CPU 上跑，**音频不出本机**。
 支持 YouTube 和用 Chrome 直接打开的本地视频/音频文件。
 
-- 识别：Parakeet-TDT-CTC 0.6B 日语版（默认）或 SenseVoice，经 sherpa-onnx 推理
+- 识别：日语用 Parakeet-TDT-CTC 0.6B 日语版，英语用 Parakeet unified 0.6B（都可换成更快的 SenseVoice），经 sherpa-onnx 推理
 - 翻译：腾讯 Hy-MT2-1.8B（GGUF Q4_K_M，llama.cpp）
 - 在 i5-13500H 笔记本上实测：原文在说完后约 0.5 秒出现，中文约 1 秒（p50）
 
-> 状态：个人项目，日语 → 中文可日常使用。英语 → 中文还在开发中。目前只支持 Windows + Chrome。
+> 状态：个人项目，日语 → 中文、英语 → 中文都可日常使用。目前只支持 Windows + Chrome。
 
 ## 工作方式
 
@@ -25,7 +25,7 @@ Chrome 标签页 ──tabCapture──▶ 扩展 offscreen（16 kHz PCM）─�
 
 ## 安装
 
-需要 Windows、Chrome 116+、Python 3.13（其他 3.10+ 版本未测）。模型约 2GB，运行时内存约 3GB。
+需要 Windows、Chrome 116+、Python 3.13（其他 3.10+ 版本未测）。模型约 2.5GB，运行时内存约 3.5GB。
 
 ```powershell
 git clone https://github.com/qwt1011/local-live-subtitles.git
@@ -38,9 +38,10 @@ pip install -r requirements.txt
 pip install llama-cpp-python==0.3.35 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
 # 下载模型（内置镜像列表，按速度逐个尝试）
-python tools\setup_models.py --engine parakeet-ja       # 识别，约 625MB
-python tools\setup_models.py --engine sensevoice-2024   # 识别（多语言，英语用它），约 230MB
-python tools\setup_models.py --engine hy-mt2            # 翻译，约 1.1GB
+python tools\setup_models.py --engine parakeet-ja           # 日语识别，约 625MB
+python tools\setup_models.py --engine parakeet-en-unified   # 英语识别，约 500MB（不装则英语用 SenseVoice）
+python tools\setup_models.py --engine sensevoice-2024       # 多语言识别（备选、更快），约 230MB
+python tools\setup_models.py --engine hy-mt2                # 翻译，约 1.1GB
 ```
 
 加载扩展：`chrome://extensions` → 打开「开发者模式」→「加载已解压的扩展程序」→ 选 `extension` 目录。
@@ -62,7 +63,8 @@ python tools\setup_models.py --engine hy-mt2            # 翻译，约 1.1GB
 | 控件 | 作用 |
 |---|---|
 | 主按钮 | 服务没开时一键启动并开始字幕；字幕进行中时变成「停止字幕」 |
-| 识别 | Parakeet（更准，默认）/ SenseVoice（更快）/ 混合（实验）。换模型会自动重启服务 |
+| 语言 | 日语 / 英语。切换不用重启服务：两种语言的识别模型服务启动时都会加载 |
+| 识别 | 按当前语言列出可选模型：Parakeet（更准，默认）/ SenseVoice（更快）/ 混合（仅日语，实验）。换模型会自动重启服务 |
 | 显示 | 原文+中文 / 原文 / 中文 |
 | 高级 | 实验开关、闲置自动关闭时长、查看服务日志、停止服务 |
 
@@ -108,7 +110,7 @@ python tools\live_bench.py --tag my_live -- --asr parakeet                      
 
 ## 已知限制
 
-- 英语：弹窗里可以选，但服务端目前只按日语识别和翻译。
+- 两种语言的识别模型加上翻译，服务常驻内存约 3.5GB；只看日语可以用 `--no-preload` 让英语模型等第一次用到时再加载。
 - 长句要等说完才定稿翻译，10 秒以上的句子中文会晚到（长句分句的研究结论见 `docs/WORKLOG.md`）。
 - 评测集只有 5 段、同一个说话人，参考文本是多模型交叉裁定、未经人工听写，只适合比较配置的相对好坏。
 - 只测过 Windows 11 + Chrome 154。
@@ -118,4 +120,4 @@ python tools\live_bench.py --tag my_live -- --asr parakeet                      
 代码以 [MIT](LICENSE) 许可证开源：可以自由使用、修改、分发，保留版权声明即可。
 
 模型不随本仓库分发，由 `tools/setup_models.py` 从各自的发布页下载，使用时遵循各模型自己的许可证
-（Parakeet：NVIDIA；SenseVoice：阿里 FunAudioLLM；Hy-MT2：腾讯）。
+（Parakeet 日语版：CC-BY-4.0；Parakeet unified 英语版：NVIDIA Open Model License；SenseVoice：阿里 FunAudioLLM；Hy-MT2：腾讯）。

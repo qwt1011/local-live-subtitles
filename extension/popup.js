@@ -37,16 +37,38 @@ const ui = {
 };
 
 const DEFAULTS = {
-  enabled: true, language: 'ja', mode: 'bilingual', asr: 'parakeet', idleMinutes: 30,
+  enabled: true, language: 'ja', mode: 'bilingual', asr: 'parakeet', enAsr: 'parakeet', idleMinutes: 30,
   earlyFinal: false, adaptiveSilence: false,
 };
 
-const ASR_HINTS = {
-  parakeet: '日语专用，识别更准；CPU 占用约为 SenseVoice 的 3 倍',
-  sensevoice: '多语言，最快最省；日语错字比 Parakeet 多',
-  hybrid: '草稿用 SenseVoice，定稿用 Parakeet（实验，实测未见明显收益）',
+// 识别模型按语言分开选：日语和英语各记一个（asr / enAsr），服务启动时两个都传过去，
+// 之后在弹窗里切语言不用重启服务（服务端按会话语言选引擎，见 app/server.py EnginePool）。
+const ASR_OPTIONS = {
+  ja: [
+    ['parakeet', 'Parakeet · 更准', '日语专用，识别更准；CPU 占用约为 SenseVoice 的 3 倍'],
+    ['sensevoice', 'SenseVoice · 更快', '多语言，最快最省；日语错字比 Parakeet 多'],
+    ['hybrid', '混合 · 实验', '草稿用 SenseVoice，定稿用 Parakeet（实验，实测未见明显收益）'],
+  ],
+  en: [
+    ['parakeet', 'Parakeet · 更准', '英语版 Parakeet：词错率 0.073（SenseVoice 0.102）；CPU 约 2 倍'],
+    ['sensevoice', 'SenseVoice · 更快', '多语言，最快最省；英语错词比 Parakeet 多约 40%'],
+  ],
 };
 const ASR_NAMES = { parakeet: 'Parakeet', sensevoice: 'SenseVoice', hybrid: '混合' };
+const ASR_KEY = { ja: 'asr', en: 'enAsr' };   // 每种语言的选择存在哪个设置里
+
+function asrHint(language, value) {
+  const row = ASR_OPTIONS[language].find(([key]) => key === value);
+  return row ? row[2] : '';
+}
+
+/** 按当前语言重建识别下拉框的选项。 */
+function renderAsrOptions() {
+  const language = settings.language;
+  const wanted = settings[ASR_KEY[language]];
+  ui.asr.replaceChildren(...ASR_OPTIONS[language].map(([value, label]) => new Option(label, value)));
+  ui.asr.value = ASR_OPTIONS[language].some(([key]) => key === wanted) ? wanted : 'parakeet';
+}
 const TRANSLATE_NAMES = { hymt: 'Hy-MT2', instruct: 'Qwen2.5' };
 
 const settings = { ...DEFAULTS };
@@ -77,13 +99,23 @@ async function callHost(message) {
   }
 }
 
-/** 服务端模型名 → 下拉框的 asr 值。 */
-function asrOf(probe) {
+/** 服务当前对某种语言用的识别（下拉框的值）。日语看主引擎，英语看 en_engine。 */
+function asrOf(probe, language = settings.language) {
   if (!probe) return null;
+  if (language === 'en') {
+    if (!probe.en_engine) return null;   // 老版本服务没报这个字段
+    return probe.en_engine === 'sherpa' ? 'parakeet' : 'sensevoice';
+  }
   if (probe.final_engine === 'sherpa') return 'hybrid';
   if (probe.engine === 'sherpa') return 'parakeet';
   if (probe.engine === 'sensevoice') return 'sensevoice';
   return null;
+}
+
+/** 服务的识别配置是否和两种语言的设置都一致。 */
+function serviceMatches(probe) {
+  const en = asrOf(probe, 'en');
+  return asrOf(probe, 'ja') === settings.asr && (en === null || en === settings.enAsr);
 }
 
 function formatSeconds(total) {
@@ -171,15 +203,11 @@ function render() {
   }
 
   // 识别说明：运行中的模型和下拉框不一致时提示
-  let hint = ASR_HINTS[ui.asr.value] || '';
+  let hint = asrHint(settings.language, ui.asr.value);
   if (running && runningAsr && runningAsr !== ui.asr.value) {
     hint = host && host.managed
       ? `服务当前用的是 ${ASR_NAMES[runningAsr]}，开始字幕时会重启服务切换（约 10–40 秒）`
       : `服务当前用的是 ${ASR_NAMES[runningAsr]}（手动启动的，不会自动切换）`;
-  }
-  if (settings.language === 'en') {
-    // 服务端目前按启动时的 --language（默认 ja）识别，start 消息里的语言没有生效；英语支持见 WORKLOG 待办。
-    hint = '英语还在开发中：当前服务只按日语识别和翻译';
   }
   ui.asrHint.textContent = hint;
 
@@ -257,9 +285,8 @@ function experimentOptions() {
 
 async function ensureService() {
   const wanted = ui.asr.value;
-  const runningAsr = asrOf(view.probe);
-  if (view.probe && (runningAsr === wanted || !view.host || !view.host.managed)) {
-    // 已经在跑：模型一致，或者是用户手动开的（不替用户重启）
+  if (view.probe && (serviceMatches(view.probe) || !view.host || !view.host.managed)) {
+    // 已经在跑：识别配置一致，或者是用户手动开的（不替用户重启）
     return true;
   }
   if (!view.host) {
@@ -270,7 +297,8 @@ async function ensureService() {
   view.busy = restarting ? `正在切换到 ${ASR_NAMES[wanted]}…` : '正在启动本地服务…';
   render();
   const reply = await callHost({
-    cmd: restarting ? 'restart' : 'start', asr: wanted, idle_minutes: settings.idleMinutes,
+    cmd: restarting ? 'restart' : 'start', asr: settings.asr, en_asr: settings.enAsr,
+    idle_minutes: settings.idleMinutes,
   });
   if (!reply || reply.ok === false) {
     view.busy = '';
@@ -368,7 +396,7 @@ ui.earlyFinal.addEventListener('change', () => save({ earlyFinal: ui.earlyFinal.
 ui.adaptiveSilence.addEventListener('change', () => save({ adaptiveSilence: ui.adaptiveSilence.checked }));
 ui.idle.addEventListener('change', () => save({ idleMinutes: Number(ui.idle.value) }));
 ui.asr.addEventListener('change', () => {
-  save({ asr: ui.asr.value });
+  save({ [ASR_KEY[settings.language]]: ui.asr.value });
   render();
 });
 
@@ -378,6 +406,7 @@ for (const group of document.querySelectorAll('.segmented')) {
     // mode 改了 content script 通过 storage.onChanged 立即生效，不用发消息。
     save({ [group.dataset.name]: button.dataset.value });
     renderSegments();
+    if (group.dataset.name === 'language') renderAsrOptions();
     render();
     button.focus();
   };
@@ -408,9 +437,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 async function init() {
   const value = await chrome.storage.local.get(DEFAULTS);
   Object.assign(settings, value);
-  if (!ASR_HINTS[settings.asr]) settings.asr = DEFAULTS.asr;
   ui.enabled.checked = settings.enabled;
-  ui.asr.value = settings.asr;
+  renderAsrOptions();
   ui.idle.value = String(settings.idleMinutes);
   ui.earlyFinal.checked = settings.earlyFinal;
   ui.adaptiveSilence.checked = settings.adaptiveSilence;

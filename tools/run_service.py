@@ -35,7 +35,7 @@ TRANSLATE_MODEL = {
 }
 
 
-def check_models(engine, asr="parakeet"):
+def check_models(engine, asr="parakeet", en_asr="parakeet"):
     """检查模型是否就绪，返回缺失的条目名。"""
     from app.models_catalog import CATALOG, MODELS_DIR, is_ready
 
@@ -47,6 +47,8 @@ def check_models(engine, asr="parakeet"):
     else:
         required = {ASR_MODEL[asr][1]: "识别模型"}
     required[TRANSLATE_MODEL[engine]] = "翻译模型"
+    if en_asr == "parakeet":
+        required["parakeet-en-unified"] = "英语识别模型（缺了英语会话会退回 SenseVoice）"
     for name, label in required.items():
         entry = CATALOG.get(name)
         if entry is None:
@@ -109,6 +111,8 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-translate", action="store_true", help="只出原文，不加载翻译模型")
     parser.add_argument("--language", default="ja")
+    parser.add_argument("--en-asr", default="parakeet", choices=("parakeet", "sensevoice"),
+                        help="英语会话的识别模型：parakeet（默认，Parakeet unified 英语版，更准）或 sensevoice（更快）")
     parser.add_argument("--asr", default="parakeet", choices=tuple(ASR_MODEL) + tuple(HYBRID),
                         help="识别模型：parakeet（默认，日语专用、更准）；sensevoice（多语言、更快，英语用它）；"
                              "hybrid（草稿 SenseVoice、定稿 Parakeet，实验）")
@@ -132,7 +136,7 @@ def main():
     print("=" * 60)
     print()
 
-    check_models(args.translate_engine, args.asr)
+    check_models(args.translate_engine, args.asr, args.en_asr)
     if not check_port(args.host, args.port):
         return 1
 
@@ -157,6 +161,8 @@ def main():
             "--host", args.host, "--port", str(args.port), "--language", args.language]
     if final:
         argv += ["--final-engine", final[0], "--final-model", final[1]]
+    argv += (["--en-engine", "sherpa", "--en-model", "parakeet-en-unified"] if args.en_asr == "parakeet"
+             else ["--en-engine", "sensevoice", "--en-model", "sensevoice-2024"])
     if not args.no_translate:
         argv += ["--translate", "--translate-engine", args.translate_engine]
     # 默认写日志：用户实测后能直接复盘逐句识别、延迟和过滤情况（09-30 双开关实测就因为没日志没法分析）。

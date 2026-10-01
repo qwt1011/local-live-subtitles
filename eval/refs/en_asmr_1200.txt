@@ -1,0 +1,10 @@
+# id: en_asmr_1200
+# status: consensus
+# 来源：whisper large-v3 为主干，与 small、YouTube 自动字幕三方交叉比对 + 语义裁定；未经人工听写。裁定规则见 eval/README.md。
+# 片段：asmr_en_01 720s 起，60s，语言 en
+I, I just can't, this is so precious, I, oh, I was surprised, you know, that you'd be into this
+sort of kind of thing, but, you know, actually, no, it's, it kind of made perfect sense on some
+level, it explains a lot of things about you, yeah, it does, like, how you get around
+girls like me, you know, you get all quiet, and nervous, and needy, oh, so needy, and so unsure, # YouTube 漏
+but one of those isn't a nice thing, I would very much like for you to be sure,
+sure that you can handle this assignment for me.

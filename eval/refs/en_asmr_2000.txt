@@ -1,0 +1,8 @@
+# id: en_asmr_2000
+# status: consensus
+# 来源：whisper large-v3 为主干，与 small、YouTube 自动字幕三方交叉比对 + 语义裁定；未经人工听写。裁定规则见 eval/README.md。
+# 片段：asmr_en_01 1200s 起，60s，语言 en
+Oh, sensitive spot, is it? Or perhaps it's how warm my breath feels against the side of your neck. # YouTube 漏
+Does that tickle? I bet it's hard. What's hard? Oh, it's just saying the word rough twice quickly.
+It's frustratingly hard to do that correctly, you know? Why don't you give it a try?
+Good boy.

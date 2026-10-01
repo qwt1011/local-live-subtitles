@@ -12,6 +12,9 @@ venv/
 # 音频片段也不入库（来自有版权的视频）；评测音频由 tools/build_eval.py 从源视频切出
 *.wav
 *.mp3
+# 源视频的字幕文件（YouTube 自动字幕，用作评测参考的素材）
+*.vtt
+*.srt
 
 # 模型与语言包缓存：体积大、可重新下载
 models/
@@ -37,3 +40,11 @@ runs/live/
 runs/service.log
 runs/service_state.json
 runs/native_host/
+
+# 下载用的浏览器 cookies，等同登录凭证，绝不入库
+cookies*.txt
+
+# 人工中文译文（从内嵌字幕视频 OCR 出来的，是别人的翻译作品）只在本地做对照，不入库；
+# 用 tools/ocr_subtitles.py 重新生成。翻译对照的输出里也带着人工译文。
+eval/zh_refs/
+runs/translation_vs_human/

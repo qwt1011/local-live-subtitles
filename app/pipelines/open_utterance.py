@@ -49,8 +49,23 @@ SAMPLE_RATE = 16000
 FILLER = re.compile(r"^[\s。、，,.…・?？!！ー〜~]*(?:[うんあえはへふ]|ん[ー〜]?)+[\s。、，,.…・?？!！ー〜~]*$")
 
 
-def is_filler(text):
-    return bool(FILLER.match(text))
+# 英语版：整句只有 um/uh/hmm/oh/ah/mm 这类（含拉长写法 ummm、hmmm），以及笑声 haha/hehe。
+# 刻意不含 yeah/ok/no/hey 这类有意义的短句。10-01 起英语会话使用。
+FILLER_EN = re.compile(r"^[\s.,!?…\-~]*(?:(?:u+[mh]+|h+m+|m+h*m+|o+h+|a+h+|e+r+m*|ha(?:ha)+|he(?:he)+|"
+                       r"hu+h)[\s.,!?…\-~]*)+$", re.IGNORECASE)
+
+
+def is_filler(text, language="ja"):
+    return bool((FILLER_EN if language == "en" else FILLER).match(text))
+
+
+# SenseVoice 英语偶尔漏掉标点后的空格（「doing,huh」）：补上，翻译和显示都更干净。
+# 只处理英文字母之间，不碰数字（「1,000」「3.5」）。
+_EN_PUNCT_SPACE = re.compile(r"(?<=[A-Za-z])([,!?;:])(?=[A-Za-z])|(?<=[A-Za-z]{2})(\.)(?=[A-Z][a-z])")
+
+
+def tidy_english(text):
+    return _EN_PUNCT_SPACE.sub(lambda m: (m.group(1) or m.group(2)) + " ", " ".join(text.split()))
 
 
 # SenseVoice 有时在日语词之间插空格（「脇 が甘い 男性 が」）。日语本身不用空格，
@@ -274,8 +289,8 @@ class OpenUtterancePipeline:
             )]
         elapsed = time.perf_counter() - started
 
-        text = join_cjk(result.text)
-        filtered = bool(text) and self.drop_fillers and is_filler(text)
+        text = tidy_english(result.text) if self.language == "en" else join_cjk(result.text)
+        filtered = bool(text) and self.drop_fillers and is_filler(text, self.language)
         if filtered:
             # 整句只有语气词/笑声（「う。」「へへ。」「ふふふ。」）：评测集上几乎都是
             # 短停顿里的呼吸或笑声被识别成音节，送去翻译只会产生噪声字幕。

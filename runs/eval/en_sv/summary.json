@@ -1,0 +1,93 @@
+{
+  "total": {
+    "engine": "sensevoice",
+    "model": "sensevoice-2024",
+    "final_engine": null,
+    "final_model": null,
+    "clips": 5,
+    "scored_clips": 5,
+    "cpu_ratio_mean": 0.168,
+    "p95_max": 0.485,
+    "final_p95_max": 0.664,
+    "cer": 0.1015,
+    "cer_draft": 0.1015
+  },
+  "clips": [
+    {
+      "clip": "en_asmr_0100",
+      "tags": [
+        "asmr",
+        "dense"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.192,
+      "p50": 0.359,
+      "p95": 0.414,
+      "final_p95": 0.571,
+      "worst": 0.891,
+      "cer": 0.06504065040650407,
+      "transcript": "Whatever Dork, listen. I need a favor from you. Okay, let me rephrase that real quick yeah. . I want you to do something for me and. You're going to do it. No ifs, no buts. Just. Come along quietly. Or. What? Or I could drag you down the hallway by the back of your T shirt. Don't blame me if anybody whips out their phone to film the whole thing. Dude. udeI won the volleyball team. We played nationals last year. I hit the gym four times a week. And I'm tall than you buy a couple of inches, do you really think I can't drag your wimpy as by myself? Is that a hill you're willing to die on?"
+    },
+    {
+      "clip": "en_asmr_0800",
+      "tags": [
+        "asmr",
+        "densest"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.248,
+      "p50": 0.386,
+      "p95": 0.485,
+      "final_p95": 0.664,
+      "worst": 0.833,
+      "cer": 0.12295081967213115,
+      "transcript": "Do you remember when you were sitting beside me in Miss Arlington' class that one time? You'd have bolted from practically any other chair in the class but. Oh, no. It was full that day. And you relate. Whatever could you have been doinghu? You oversped or maybe you were staying late the previous night. Doing. Something. Right. As a matter of fact, you were so tired, you actually dozed off right beside me in class. Maybe it was Miss. Erlington's calm, sleepy voice or. Perhaps it was the nice and cool weather. In any case, you fell asleep. La for 10 minutes, but. 1en minutes too long. Your phone was on your desk."
+    },
+    {
+      "clip": "en_asmr_1200",
+      "tags": [
+        "asmr"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.182,
+      "p50": 0.364,
+      "p95": 0.424,
+      "final_p95": 0.579,
+      "worst": 0.764,
+      "cer": 0.0784313725490196,
+      "transcript": "I just can't, this is so precious. I was surprised, you know? That you'd be into this sort of kind of thing but. You know, actually, you no, it's it kind of made perfect sense on some level. Explains a lot of things about you. Yeah. It does like. You get around. Like me. You know, you get all quiet and. Nervous and needy. Oh, so needy. And so unsure. One of those isn't a nice thing. I would. Very much like for you to be sure. Sure that you can handle this assignment for me."
+    },
+    {
+      "clip": "en_asmr_2000",
+      "tags": [
+        "asmr",
+        "sparse",
+        "quiet"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.106,
+      "p50": 0.36,
+      "p95": 0.406,
+      "final_p95": 0.482,
+      "worst": 0.673,
+      "cer": 0.09090909090909091,
+      "transcript": "Sensitive spot, is it? Or perhaps it's how warm my breath feels against the side of your neck. Does that tacklele. Hy. I be it's hard. What's hard? Oh, it's. Just. Saying the word rough. Twice. Quickly. It's frustratingly hard to do that correctly, you know? Why don't you. G it a try. Good boy."
+    },
+    {
+      "clip": "en_asmr_2600",
+      "tags": [
+        "asmr",
+        "sparse",
+        "quiet"
+      ],
+      "ref": "consensus",
+      "cpu_ratio": 0.112,
+      "p50": 0.356,
+      "p95": 0.403,
+      "final_p95": 0.534,
+      "worst": 0.782,
+      "cer": 0.15,
+      "transcript": "There we go. That boy. All right, well. You can have a back. And I'll be calling you. Soon. You better pick up Dork or elses. Okay. Then. you later. Bye bye. Hey. But. Before I go though. And you do something for me? Say. One did I stutter? Say it again. Puppies like to wolf, don't they?"
+    }
+  ]
+}

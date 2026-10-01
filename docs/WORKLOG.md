@@ -603,6 +603,39 @@ CER 的差异落在噪声范围内（每段约 ±0.02）。
 （启动服务并开始 / 开始 / 停止）；识别模型下拉框（Parakeet 默认 / SenseVoice / 混合），换模型时自动重启服务；
 高级区放实验开关、闲置时长、查看服务日志（`log.html`）、停止服务。跟随系统深浅色，主题色蓝，工具栏角标显示 ON。
 
+## 2026-10-01 英语支持
+
+**评测集**：用户给的英语 ASMR 角色扮演视频（YouTube PJTziu8VFRE，27.5 分钟，单个女声）切 5 段 × 60 秒：
+前段最密（1:00）、全片最密（8:00）、中等（12:00）、最稀疏最轻（20:00，19s 语音、-27dB）、结尾稀疏（26:00）。
+参考文本 whisper large-v3 为主干，与 small、YouTube 自动字幕三方裁定（large/small 一致度 0.90–0.975）。
+用户另外下了 B 站内嵌中字版（人工翻译，音轨与 YouTube 版只差 0.03s），用 Windows 自带 OCR 逐帧提取出 377 条中文字幕，
+作为译文的人工参考（`tools/ocr_subtitles.py`）。
+
+**下载**：yt-dlp 要用浏览器 cookies 过登录校验（用完即删），2026.07.04 版拿不到格式，升到 2026.08.19 + Node 做签名校验。
+
+**英语识别（5 段 × 3 轮，WER）**：
+
+| 模型 | WER | cpu_ratio | final_p95 最大 | 句末无标点 |
+|---|---|---|---|---|
+| SenseVoice-2024 | 0.102 | 0.17 | 0.66s | 0% |
+| **Parakeet unified en 0.6B**（2026-04） | **0.073** | 0.36 | 1.45s | 47% |
+| Parakeet tdt-0.6b-v2（2025-04） | 0.105 | 0.37 | 1.23s | 20% |
+
+候选来自调研（Open ASR Leaderboard + sherpa-onnx 现成导出）：Qwen3-ASR、FunASR-Nano 是 LLM 解码器，每 0.5s 重解太慢；
+Whisper 系有 30s 补齐成本；canary-1b、Kyutai 没有 sherpa 导出。Parakeet v2 在轻声稀疏段错得最多（0.20 / 0.18），放弃。
+
+**整条链路译文对人工译文**（`tools/translation_vs_human.py`，整段 chrF）：SenseVoice 0.259、unified 0.264、v2 0.259。
+差异不大：人工译文是意译（"Ms. Arlington" 译作"阿灵顿老师"，我们是"阿林顿小姐"），chrF 绝对值低是正常的。
+逐句看我们的译文意思基本都对，主要问题是碎句被分开翻译。
+
+**英语文本规则（都对真实输出验证过）**：语气词整句过滤（um/uh/hmm/uh-huh/haha，yeah/okay/no/oh no 保留）；
+SenseVoice 标点后漏空格（"doing,huh"）补上，不碰 1,000、e.g.、U.S.；Parakeet 句末补句号
+（离线 A/B 对人工译文 0.264 → 0.269，不会更差）。日语那套清洗只对日语。
+
+**服务**：`EnginePool` 按会话语言选识别引擎，start 消息里的语言终于生效；英语默认 Parakeet unified
+（`--en-engine/--en-model`，模型缺失自动退回 SenseVoice），启动后后台预加载（否则首次英语会话现场加载约 18 秒，
+开头十几秒的字幕全部延后）。弹窗识别下拉框按语言列选项，日语、英语的选择分开记。扩展 v0.5.0。
+
 ## 待办与已知缺口
 
 1. **SenseVoice 2025-09-09 已否决（09-29，评测集 `runs/eval/sv2025`）**：它的 README 写明转自
@@ -635,9 +668,8 @@ CER 的差异落在噪声范围内（每段约 ±0.02）。
    - 09-29 已删除冗余模型（4.7GB）：NLLB 全部 4 份、opus-mt-ja-en 两份、SenseVoice 2025。
      `--translate-engine nllb` 现在会报缺模型；需要时用 `tools/setup_models.py` 重新下载。
 3. **ARCHITECTURE_REVIEW.md** 是 09-22 的诊断快照，结论仍成立，但未回填最终达成情况。
-4. **英语 → 中文（下一步）**：弹窗能选英语，但服务端只按启动时的 `--language`（默认 ja）识别，
-   start 消息里的语言没有生效；翻译提示词也是日语专用。SenseVoice 支持英语，可以直接用；
-   要做的是：按会话语言切换识别引擎（英语时强制 SenseVoice 或另选英语模型）和翻译方向，并建英语评测集。
+4. **英语 → 中文：10-01 完成**，见下方《英语支持》。剩余：英语碎句（Parakeet 把 "Doing / Something" 切成两句、
+   各自翻译）还没解决，离线试过"短碎句并入下一句"，对人工译文没有改善（chrF 0.264 → 0.261），没上。
 5. **识别仍可提升**：09-30 候选里还没测 anime-whisper（动画/配音数据微调，只适合定稿时重识别）
    和 Qwen3-ASR-0.6B；评测集参考文本仍是 consensus，未经人工听写。
 

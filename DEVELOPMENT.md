@@ -42,6 +42,9 @@ app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备�
 |---|---|
 | **不用 Whisper 做实时识别** | 每次调用有约 1 秒固定成本（30 秒补齐），与音频长度无关；温度回退阶梯会让单块从 2.3s 涨到 6.6s（`docs/BENCHMARK_RESULTS.md` 第 2–5 节） |
 | **VAD 断句 + 开放段重解码**，而不是固定分块 | 固定分块要么切断词、要么等太久；重解码让草稿跟着说话走，定稿时整句解码一次 |
+| **英语默认识别 Parakeet unified** | 英语评测集 WER 0.073，SenseVoice 0.102，Parakeet tdt-v2 0.105（v2 在轻声稀疏段错得最多）。CPU 约为 SenseVoice 的 2 倍（`runs/eval/en_*`） |
+| 识别引擎按会话语言选 | 弹窗切语言不重启服务：主引擎服务默认语言，另一种语言的引擎在启动后后台预加载（`app/server.py::EnginePool`） |
+| 英语文本规则单独写 | 日语那套（笑声、空格转标点）不适用；英语语气词过滤（um/uh/hmm）、标点后补空格、句末补句号都对真实输出验证过 |
 | **默认识别 Parakeet-ja** | 评测集 CER 0.066，SenseVoice 0.090；译文与参考译文的 chrF 中位 0.86 vs 0.76。实时推流下中文 p50 1.04s，与 SenseVoice（1.22s）相当（`runs/eval/parakeet_ja_clean2`、`runs/live_bench/`） |
 | Parakeet 输出要清洗 | 它把笑声转成「フフフ」、句中用空格代替标点、句末不补「。」。少了句号 Hy-MT 的译法就会变，清洗前译文反而比 SenseVoice 差（`app/asr/sherpa_offline_engine.py::clean_text`） |
 | SenseVoice 去掉词间空格 | 它会在日语词之间插空格，翻译模型当成断句，6 句里有 3 句因此译错（`join_cjk`） |

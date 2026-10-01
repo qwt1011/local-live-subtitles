@@ -1,0 +1,15 @@
+# id: en_asmr_0800
+# status: consensus
+# 来源：whisper large-v3 为主干，与 small、YouTube 自动字幕三方交叉比对 + 语义裁定；未经人工听写。裁定规则见 eval/README.md。
+# 片段：asmr_en_01 480s 起，60s，语言 en
+Uh, yes, dummy. I know. # 片段开头，large 漏，small 与 YouTube 都有
+Do you remember when you were sitting beside me in Ms. Arlington's class that one time?
+You'd have bolted from practically any other chair in the class, but uh, oh no, it was full that day.
+And you were late.
+Whatever could you have been doing, huh?
+You overslept or maybe you were staying late the previous night? # small 误为 overslapped
+Doing something, right?
+As a matter of fact, you were so tired you actually dozed off right beside me in class.
+Maybe it was Ms. Arlington's calm, sleepy voice or perhaps it was the nice and cool weather.
+In any case, you fell asleep only for ten minutes, but ten minutes too long.
+Your phone was on your desk.

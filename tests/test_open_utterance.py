@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.pipelines.base import Job  # noqa: E402
 from app.pipelines.open_utterance import (  # noqa: E402
-    OpenUtterancePipeline, ends_sentence, find_cut, is_filler, join_cjk)
+    OpenUtterancePipeline, ends_sentence, find_cut, is_filler, join_cjk, tidy_english)
 
 
 class FakeEngine:
@@ -183,6 +183,36 @@ class JoinCjkTest(unittest.TestCase):
         self.assertEqual(event.text, "本当のことよ。")
 
 
+class EnglishTextTest(unittest.TestCase):
+    def test_english_fillers(self):
+        for text in ("Um.", "uh,", "Hmm?", "ohh", "Ah!", "haha.", "Mm-hmm.", "Uh-huh", "huh?"):
+            self.assertTrue(is_filler(text, "en"), text)
+
+    def test_meaningful_short_english_kept(self):
+        for text in ("Yeah.", "Okay.", "No.", "Hey.", "Oh no.", "Um, I know.", "Good boy."):
+            self.assertFalse(is_filler(text, "en"), text)
+
+    def test_japanese_rule_not_applied_to_english(self):
+        # 「あ」「う」只对日语算语气词；英语里 "a" 不能被当成语气词
+        self.assertFalse(is_filler("A.", "en"))
+
+    def test_missing_space_after_punctuation(self):
+        self.assertEqual(tidy_english("doing,huh, you overspt.Maybe later"),
+                         "doing, huh, you overspt. Maybe later")
+        self.assertEqual(tidy_english("Wait,what?No way!"), "Wait, what? No way!")
+
+    def test_numbers_and_abbreviations_untouched(self):
+        self.assertEqual(tidy_english("1,000 or 3.5 e.g. the U.S. Army"), "1,000 or 3.5 e.g. the U.S. Army")
+
+    def test_pipeline_uses_english_rules(self):
+        pipeline = OpenUtterancePipeline(FakeEngine("Um."), language="en")
+        [event] = pipeline.run_job(final_job())
+        self.assertEqual(event.text, "")
+        pipeline = OpenUtterancePipeline(FakeEngine("hey,you"), language="en")
+        [event] = pipeline.run_job(final_job())
+        self.assertEqual(event.text, "hey, you")
+
+
 class FinalEngineTest(unittest.TestCase):
     """混合模式：草稿用快引擎，定稿用准引擎。"""
 
@@ -207,6 +237,22 @@ class FinalEngineTest(unittest.TestCase):
     def test_default_is_single_engine(self):
         [event] = OpenUtterancePipeline(self.fast).run_job(final_job())
         self.assertEqual(event.engine, "fast")
+
+
+class SherpaCleanTextEnTest(unittest.TestCase):
+    def setUp(self):
+        from app.asr.sherpa_offline_engine import clean_text_en
+        self.clean = clean_text_en
+
+    def test_adds_period(self):
+        self.assertEqual(self.clean("I need a favor from you"), "I need a favor from you.")
+
+    def test_trailing_comma_becomes_period(self):
+        self.assertEqual(self.clean("only for ten minutes, but,"), "only for ten minutes, but.")
+
+    def test_existing_punctuation_kept(self):
+        for text in ("Good boy.", "Did I stutter?", "No way!", "Wait…"):
+            self.assertEqual(self.clean(text), text)
 
 
 class SherpaCleanTextTest(unittest.TestCase):

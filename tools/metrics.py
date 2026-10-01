@@ -106,6 +106,41 @@ def character_error_rate(hypothesis, reference):
     return levenshtein(ref, hyp) / len(ref)
 
 
+# 英语按词算错误率：小写、去标点；数字与拼写变体统一（ten/10、alright/all right、buh-bye/bye-bye 之类）。
+# 参考文本和识别结果都过同一套规则，所以只要规则一致，具体选哪种写法不影响比较。
+_EN_EQUIV = {"alright": "all right", "okay": "ok", "ms": "miss", "mrs": "missus", "buh-bye": "bye-bye"}
+_EN_NUMBERS = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four", "5": "five", "6": "six",
+               "7": "seven", "8": "eight", "9": "nine", "10": "ten", "11": "eleven", "12": "twelve",
+               "15": "fifteen", "20": "twenty", "30": "thirty", "100": "hundred"}
+
+
+def normalize_words(text):
+    import re
+    text = unicodedata.normalize("NFKC", text).lower().replace("’", "'")
+    words = re.findall(r"[a-z0-9]+(?:['-][a-z0-9]+)*", text)
+    out = []
+    for word in words:
+        word = _EN_NUMBERS.get(word, word)
+        word = _EN_EQUIV.get(word, word)
+        out.extend(word.replace("-", " ").split())
+    return out
+
+
+def word_error_rate(hypothesis, reference):
+    ref = normalize_words(reference)
+    hyp = normalize_words(hypothesis)
+    if not ref:
+        return 0.0 if not hyp else 1.0
+    return levenshtein(ref, hyp) / len(ref)
+
+
+def error_rate(hypothesis, reference, language="ja"):
+    """评测用的错误率：英语按词（WER），中日文按字（CER）。"""
+    if language == "en":
+        return word_error_rate(hypothesis, reference)
+    return character_error_rate(hypothesis, reference)
+
+
 def final_transcript(events):
     """每个 segment 取 revision 最大的一条，按 segment_id 排序拼起来。"""
     latest = {}

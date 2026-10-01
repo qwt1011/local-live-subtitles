@@ -1,0 +1,15 @@
+# id: en_asmr_2600
+# status: consensus
+# 来源：whisper large-v3 为主干，与 small、YouTube 自动字幕三方交叉比对 + 语义裁定；未经人工听写。裁定规则见 eval/README.md。
+# 片段：asmr_en_01 1560s 起，60s，语言 en
+There we go.
+Good boy.
+Alright, well, you can have it back, and I'll be calling you soon.
+You better pick up, dork.
+Or else. # YouTube 漏
+Okay, catch you later.
+Buh-bye. # small/YouTube 为 bye；口语拟声，按 large
+Hey, but, um, before I go, though, can you do something for me?
+Say, what, what, did I stutter? # YouTube 为 woof，听感上是 what
+Say it again.
+Puppies like to woof, don't they? # small 误为 but bees

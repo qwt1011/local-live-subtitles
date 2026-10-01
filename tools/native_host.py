@@ -107,9 +107,14 @@ def python_exe():
     return next(str(p) for p in candidates if p.is_file())
 
 
-def start(asr="parakeet", idle_minutes=30):
+EN_ASR_CHOICES = ("parakeet", "sensevoice")
+
+
+def start(asr="parakeet", idle_minutes=30, en_asr="parakeet"):
     if asr not in ASR_CHOICES:
         return {"ok": False, "error": f"未知识别模型：{asr}"}
+    if en_asr not in EN_ASR_CHOICES:
+        en_asr = "parakeet"
     if idle_minutes not in IDLE_CHOICES:
         idle_minutes = 30
     if port_open():
@@ -117,17 +122,17 @@ def start(asr="parakeet", idle_minutes=30):
 
     RUNS.mkdir(parents=True, exist_ok=True)
     log = LOG.open("a", encoding="utf-8")
-    log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 由扩展启动：asr={asr} "
+    log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 由扩展启动：asr={asr} en_asr={en_asr} "
               f"idle={idle_minutes}min =====\n")
     log.flush()
-    argv = [python_exe(), "-u", str(ROOT / "tools" / "run_service.py"), "--asr", asr,
+    argv = [python_exe(), "-u", str(ROOT / "tools" / "run_service.py"), "--asr", asr, "--en-asr", en_asr,
             "--port", str(PORT), "--idle-exit", str(idle_minutes * 60)]
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     process = subprocess.Popen(
         argv, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env,
         creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
         close_fds=True)
-    STATE.write_text(json.dumps({"pid": process.pid, "asr": asr, "idle_minutes": idle_minutes,
+    STATE.write_text(json.dumps({"pid": process.pid, "asr": asr, "en_asr": en_asr, "idle_minutes": idle_minutes,
                                  "started_at": time.time()}), encoding="utf-8")
     return {"ok": True, "starting": True, "pid": process.pid, "asr": asr}
 
@@ -168,12 +173,14 @@ def handle(message):
     if cmd == "status":
         return status()
     if cmd == "start":
-        return start(message.get("asr", "parakeet"), message.get("idle_minutes", 30))
+        return start(message.get("asr", "parakeet"), message.get("idle_minutes", 30),
+                     message.get("en_asr", "parakeet"))
     if cmd == "restart":
         stopped = stop()
         if not stopped.get("ok"):
             return stopped
-        return start(message.get("asr", "parakeet"), message.get("idle_minutes", 30))
+        return start(message.get("asr", "parakeet"), message.get("idle_minutes", 30),
+                     message.get("en_asr", "parakeet"))
     if cmd == "stop":
         return stop()
     if cmd == "log":

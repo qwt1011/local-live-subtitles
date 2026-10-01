@@ -1,0 +1,12 @@
+# id: en_asmr_0100
+# status: consensus
+# 来源：whisper large-v3 为主干，与 small、YouTube 自动字幕三方交叉比对 + 语义裁定；未经人工听写。裁定规则见 eval/README.md。
+# 片段：asmr_en_01 60s 起，60s，语言 en
+Whatever, dork. Listen, I need a favor from you. # YouTube 漏了半句；large 与 small 一致
+Okay, let me rephrase that real quick, yeah?
+Um, I want you to do something for me, and you're going to do it. No ifs, no buts,
+just come along quietly. Or what? Or I could drag you down the hallway by the back of your t-shirt.
+And don't blame me if anybody whips out their phone to film the whole thing.
+Dude. Dude, I'm on the volleyball team. We played nationals last year. # large/small 为 I'm on，YouTube 为 I was；取多数
+I hit the gym four times a week, and I'm taller than you by a couple of inches.
+Do you really think I can't drag your wimpy ass by myself? Is that a hill you're willing to die on?

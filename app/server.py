@@ -53,24 +53,56 @@ MAX_EVENT_QUEUE = 64
 MAX_TRANSLATE_QUEUE = 16
 
 
+class EnginePool:
+    """按语言提供识别引擎。
+
+    10-01 起服务同时支持日语和英语：启动时按 --engine/--model 加载主引擎（服务的默认语言），
+    其他语言的会话在第一次用到时再加载 SenseVoice 的对应语言实例并缓存——
+    Parakeet 只能识别日语，SenseVoice 的语言是构造参数，换语言必须另建实例。
+    """
+
+    def __init__(self, args, engine, final_engine=None):
+        self.args = args
+        self.default_language = args.language
+        self.engines = {args.language: (engine, final_engine)}
+        self.lock = threading.Lock()
+
+    def spec(self, language):
+        """非默认语言用哪个引擎：英语看 --en-engine/--en-model（默认 Parakeet unified），其他语言用 SenseVoice。"""
+        if language == "en":
+            return self.args.en_engine, self.args.en_model
+        return "sensevoice", "sensevoice-2024"
+
+    def get(self, language):
+        with self.lock:
+            if language not in self.engines:
+                name, model = self.spec(language)
+                print(f"首次使用 {language}：加载 {name} / {model} …", flush=True)
+                began = time.perf_counter()
+                try:
+                    engine = create_engine(name, model, language=language, threads=self.args.threads)
+                except SystemExit as exc:
+                    # 模型没下载：退回 SenseVoice，别让整个会话起不来
+                    print(f"  加载失败（{exc}），改用 SenseVoice", flush=True)
+                    engine = create_engine("sensevoice", "sensevoice-2024", language=language,
+                                           threads=self.args.threads)
+                print(f"{language} 引擎就绪（{time.perf_counter() - began:.2f}s）", flush=True)
+                # 混合模式的定稿引擎是日语 Parakeet，其他语言不用它
+                self.engines[language] = (engine, None)
+            return self.engines[language]
+
+
+SUPPORTED_LANGUAGES = ("ja", "en")
+
+
 class Session:
-    def __init__(self, args, engine, translator=None, final_engine=None):
+    def __init__(self, args, engine, translator=None, final_engine=None, pool=None):
         self.args = args
         self.engine = engine
         self.translator = translator
-        self.pipeline = OpenUtterancePipeline(
-            engine,
-            language=args.language,
-            min_speech=args.min_speech,
-            min_silence=args.min_silence,
-            partial_step=args.partial_step,
-            max_utterance=args.max_utterance,
-            call_timeout=args.call_timeout,
-            drop_fillers=not args.keep_fillers,
-            early_final=args.early_final,
-            adaptive_silence=args.adaptive_silence,
-            final_engine=final_engine,
-        )
+        self.pool = pool
+        self.language = args.language
+        self.pipeline = self._build_pipeline(engine, final_engine, args.language)
         self.lock = threading.Lock()
         self.translate_queue = queue.Queue(maxsize=MAX_TRANSLATE_QUEUE)
         self.translate_thread = None
@@ -102,6 +134,40 @@ class Session:
         # 服务窗口被直接关掉时进程会被强杀、走不到 finally，这份草稿就是唯一留下来的记录。
         self.partial_log = None
         self.log_path = None   # 会话开始时定下，结束时写到同一个名字
+
+    def _build_pipeline(self, engine, final_engine, language):
+        args = self.args
+        return OpenUtterancePipeline(
+            engine,
+            language=language,
+            min_speech=args.min_speech,
+            min_silence=args.min_silence,
+            partial_step=args.partial_step,
+            max_utterance=args.max_utterance,
+            call_timeout=args.call_timeout,
+            drop_fillers=not args.keep_fillers,
+            early_final=args.early_final,
+            adaptive_silence=args.adaptive_silence,
+            final_engine=final_engine,
+        )
+
+    def set_language(self, language):
+        """start 消息里的语言：和服务默认语言不同就换引擎重建流水线（必须在开始推音频之前）。
+
+        返回实际生效的语言；不支持的语言回落到服务默认语言。
+        """
+        if language not in SUPPORTED_LANGUAGES or self.pool is None:
+            return self.language
+        if language == self.language:
+            return language
+        engine, final_engine = self.pool.get(language)
+        with self.lock:
+            early, adaptive = self.pipeline.early_final, self.pipeline.adaptive_silence
+            self.pipeline = self._build_pipeline(engine, final_engine, language)
+            self.pipeline.early_final, self.pipeline.adaptive_silence = early, adaptive
+            self.engine = engine
+            self.language = language
+        return language
 
     # --- 会话生命周期 -----------------------------------------------------
 
@@ -302,7 +368,7 @@ class Session:
             try:
                 began = time.perf_counter()
                 translated = self.translator.translate(
-                    text, source=self.args.language, target="zh",
+                    text, source=self.language, target="zh",
                     context=context, style=self.args.translate_style)
                 elapsed = time.perf_counter() - began
             except Exception as exc:
@@ -446,8 +512,8 @@ class Activity:
 ACTIVITY = Activity()
 
 
-async def handle(websocket, args, engine, translator=None, final_engine=None):
-    session = Session(args, engine, translator, final_engine)
+async def handle(websocket, args, engine, translator=None, final_engine=None, pool=None):
+    session = Session(args, engine, translator, final_engine, pool)
     capturing = False
     session.bind_loop(asyncio.get_running_loop())
     print(f"客户端已连接，engine={args.engine} model={args.model}", flush=True)
@@ -463,6 +529,9 @@ async def handle(websocket, args, engine, translator=None, final_engine=None):
                 continue
             kind = control.get("type")
             if kind == "start":
+                # 换语言可能要首次加载 SenseVoice（几秒），放到线程里，别卡住事件循环
+                language = await asyncio.to_thread(session.set_language,
+                                                   control.get("language", args.language))
                 applied = session.apply_options(control.get("options"))
                 if session.log_path is None:
                     session.log_path = session_log_path(args)
@@ -475,13 +544,13 @@ async def handle(websocket, args, engine, translator=None, final_engine=None):
                     ACTIVITY.begin()
                 # 这条日志把"扩展真的开始推流了"和"只是 popup 在探测"区分开，
                 # 排查时非常关键（探测只发 ping，不会走到这里）。
-                print(f"采集开始：language={control.get('language', args.language)} "
+                print(f"采集开始：language={language} engine={session.engine.name} "
                       f"early_final={applied['early_final']} "
                       f"adaptive_silence={applied['adaptive_silence']}", flush=True)
                 await websocket.send(json.dumps({
                     "type": "status", "state": "listening",
-                    "engine": args.engine, "model": args.model,
-                    "language": control.get("language", args.language),
+                    "engine": session.engine.name, "model": getattr(session.engine, "model_name", args.model),
+                    "language": language,
                     "sample_rate": SAMPLE_RATE,
                 }, ensure_ascii=False))
             elif kind == "ping":
@@ -494,6 +563,7 @@ async def handle(websocket, args, engine, translator=None, final_engine=None):
                      "translate": translator is not None,
                      "translate_engine": args.translate_engine if translator is not None else None,
                      "final_engine": args.final_engine, "final_model": args.final_model,
+                     "en_engine": args.en_engine, "en_model": args.en_model,
                      "idle_exit": args.idle_exit,
                      "capturing_sessions": ACTIVITY.capturing,
                      "sample_rate": SAMPLE_RATE,
@@ -557,8 +627,15 @@ async def main_async(args):
                                        backend=args.translate_backend)
         print(f"翻译就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
 
+    pool = EnginePool(args, engine, final_engine)
+    # 第二种语言在后台预加载：首次英语会话如果现场加载 Parakeet（约 18 秒），这段时间推来的音频
+    # 会排在 start 处理后面，开头十几秒的字幕全部延后。预加载期间来了英语会话，get() 会等同一把锁。
+    other = "en" if args.language != "en" else None
+    if other and not args.no_preload:
+        threading.Thread(target=pool.get, args=(other,), daemon=True).start()
+
     async def handler(websocket):
-        await handle(websocket, args, engine, translator, final_engine)
+        await handle(websocket, args, engine, translator, final_engine, pool)
 
     async with ws_server.serve(handler, args.host, args.port,
                                max_size=None, ping_interval=20):
@@ -583,6 +660,12 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--language", default="ja")
     parser.add_argument("--threads", type=int, default=None)
+    parser.add_argument("--no-preload", action="store_true",
+                        help="不在启动后预加载英语引擎（省约 600MB 内存；首次英语会话会现场加载）")
+    parser.add_argument("--en-engine", default="sherpa", choices=ENGINES,
+                        help="英语会话的识别引擎（服务默认语言不是英语时，首次英语会话再加载）")
+    parser.add_argument("--en-model", default="parakeet-en-unified",
+                        help="英语会话的模型；10-01 评测 WER：parakeet-en-unified 0.073，sensevoice-2024 0.102")
     parser.add_argument("--final-engine", default=None, choices=ENGINES,
                         help="定稿改用另一个引擎（草稿仍用 --engine），例如 sherpa")
     parser.add_argument("--final-model", default=None, help="--final-engine 的模型，例如 parakeet-ja")

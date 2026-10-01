@@ -1,11 +1,16 @@
 # 评测集
 
-5 段日语 ASMR，每段 60 秒，都取自同一个参考视频。按整片 VAD 统计挑选，覆盖轻声、最轻、稀疏、密集/响亮几种情况，详见 `manifest.json`。
+日语、英语各 5 段 ASMR，每段 60 秒，每种语言取自同一个参考视频。按整片 VAD 统计挑选，覆盖轻声、最轻、稀疏、密集/响亮几种情况，详见 `manifest.json`。
+日语按字算错误率（CER），英语按词算（WER，大小写、标点、数字写法归一化后）。
+
+英语的参考文本多一个来源：YouTube 自动字幕，与 whisper large-v3、small 三方交叉裁定。
+英语源视频另有一份人工中文字幕版（B 站内嵌中字），用 `tools/ocr_subtitles.py` 提取到 `eval/zh_refs/`（不入库，是别人的翻译），
+`tools/translation_vs_human.py` 用它比较整条链路的译文。
 
 音频有版权，不入库。先用 yt-dlp 把 `manifest.json` 里 `sources` 的视频下载到项目根目录（文件名与 `path` 一致），然后：
 
 ```powershell
-python tools\build_eval.py     # 切出 eval\audio\ 的 5 段，以及早期台架用的 sample_0230_0300.wav
+python tools\build_eval.py     # 切出 eval\audio\ 的全部片段，以及早期台架用的 sample_0230_0300.wav
 python tools\eval_suite.py --engine sherpa --model parakeet-ja --tag my_run
 python tools\eval_suite.py --engine sensevoice --model sensevoice-2024 --tag my_sv
 ```

@@ -6,7 +6,10 @@
 - model.int8.onnx / model.onnx          → from_nemo_ctc
 - encoder*.onnx + decoder*.onnx + joiner*.onnx → from_transducer
 
-语言由模型决定（这两个都是日语专用），transcribe 的 language 参数只做校验。
+NeMo 导出的 transducer（Parakeet 英语版：encoder.int8.onnx 等，不带 epoch 后缀）要传 model_type="nemo_transducer"，
+否则 sherpa 按 k2 icefall 的格式解析会出错；用目录名里有没有 "nemo" 区分。
+
+语言由模型决定（都是单语模型），transcribe 的 language 参数只做校验，构造时给的 language 要与模型一致。
 """
 
 import os
@@ -38,6 +41,17 @@ def _space_mark(match):
     """短语间的空格：前面是句末助词就当句号，否则当逗号。"""
     before = match.string[:match.start()]
     return "。" if before.endswith(FINAL_PARTICLES) else "、"
+
+
+def clean_text_en(text):
+    """英语 Parakeet：自带标点，但近一半定稿句末没有（10-01 评测 75 句里 35 句）。
+    补上句号让 SenseVoice 和 Parakeet 送进流水线的形式一致；离线 A/B 对人工译文 chrF 0.264 → 0.269，
+    差异在噪声范围内，但不会更差。句末是逗号的换成句号（下一句是新的定稿，逗号会让翻译以为没说完）。
+    """
+    text = " ".join(text.split())
+    if text and text[-1] not in ".?!…\"'":
+        text = text.rstrip(",;:") + "."
+    return text
 
 
 def clean_text(text):
@@ -82,7 +96,8 @@ class SherpaOfflineEngine:
             self.recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
                 encoder=str(encoder), decoder=str(_pick(directory, "decoder")),
                 joiner=str(_pick(directory, "joiner")), tokens=str(tokens),
-                num_threads=threads, decoding_method="greedy_search", debug=False)
+                num_threads=threads, decoding_method="greedy_search", debug=False,
+                model_type="nemo_transducer" if "nemo" in directory.name else "")
         else:
             model = _pick(directory, "model")
             if model is None:
@@ -105,7 +120,9 @@ class SherpaOfflineEngine:
         self.recognizer.decode_stream(stream)
         result = stream.result
 
-        text = clean_text(getattr(result, "text", "") or "")
+        raw = getattr(result, "text", "") or ""
+        # 日语清洗（笑声、空格转标点、补句号）只对日语模型；英语模型自带标点和大小写
+        text = clean_text(raw) if self.language == "ja" else clean_text_en(raw)
         tokens = list(zip(getattr(result, "tokens", []) or [], getattr(result, "timestamps", []) or []))
         rows = [{"start": 0.0, "end": round(len(pcm) / float(SAMPLE_RATE), 3), "text": text}] if text else []
         return AsrResult(text=text, segments=rows, language=self.language, language_probability=1.0,

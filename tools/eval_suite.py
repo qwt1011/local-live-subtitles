@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from faster_whisper.audio import decode_audio  # noqa: E402
 
-from tools.metrics import character_error_rate, final_transcript, load_reference, reference_status  # noqa: E402
+from tools.metrics import error_rate, final_transcript, load_reference, reference_status  # noqa: E402
 from tools.replay import build_engine, build_pipeline, replay, summarize  # noqa: E402
 
 SAMPLE_RATE = 16000
@@ -103,7 +103,8 @@ def main():
         if ref_path.is_file():
             raw = ref_path.read_text(encoding="utf-8")
             status = reference_status(raw)
-            cer = character_error_rate(transcript, load_reference(raw))
+            # 英语片段按词算（WER），仍记在 cer 列里，汇总时按语言分开
+            cer = error_rate(transcript, load_reference(raw), language)
 
         with (out_dir / f"{clip['id']}.jsonl").open("w", encoding="utf-8") as handle:
             handle.write(json.dumps({"type": "header", "wav": str(wav.relative_to(ROOT)),
@@ -137,6 +138,12 @@ def main():
         "cer": mean("cer", verified),
         "cer_draft": mean("cer", rows),
     }
+    languages = sorted({c["language"] for c in clips})
+    if len(languages) > 1:
+        # 混跑两种语言时 cer 的平均没有意义：分别给出（英语是 WER）
+        for lang in languages:
+            subset = [r for r, c in zip(rows, clips) if c["language"] == lang and r["ref"] in SCORED]
+            total[f"{'wer' if lang == 'en' else 'cer'}_{lang}"] = mean("cer", subset)
     (out_dir / "summary.json").write_text(
         json.dumps({"total": total, "clips": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
 

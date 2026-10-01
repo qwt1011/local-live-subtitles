@@ -145,6 +145,25 @@ CATALOG = {
         "note": "ReazonSpeech k2 Zipformer（约 159M，transducer），--engine sherpa。"
                 "09-30 评测 CER 0.184 且不出标点，已放弃，仅供对照。",
     },
+    # 英语候选（10-01）：两个 NeMo transducer，自带标点和大小写。tar 包从 GitHub release 下（经代理很快）。
+    "parakeet-en-unified": {
+        "kind": "tar",
+        "archive": "sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming.tar.bz2",
+        "dir": "sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming",
+        "model": "encoder.int8.onnx",
+        "tokens": "tokens.txt",
+        "languages": "en",
+        "note": "NVIDIA parakeet-unified-en-0.6b（2026-04），Open ASR 平均 WER 5.91；NVIDIA Open Model License",
+    },
+    "parakeet-en-v2": {
+        "kind": "hf",
+        "repo": "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+        "dir": "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+        "files": ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"],
+        "required": ["encoder.int8.onnx", "tokens.txt"],
+        "languages": "en",
+        "note": "NVIDIA parakeet-tdt-0.6b-v2（2025-04），Open ASR 平均 WER 6.05；CC-BY-4.0",
+    },
     "hy-mt2": {
         "kind": "hf",
         "repo": "tencent/Hy-MT2-1.8B-GGUF",
