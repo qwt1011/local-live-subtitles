@@ -123,6 +123,8 @@ class Session:
         self.translate_dropped = 0
         self.started_at = time.perf_counter()
         self.received_samples = 0
+        self.configuring = False   # 正在处理 start 消息（可能在换引擎），期间收到的音频先缓存
+        self.pending = []
         self.thread = None
         self.running = False
         self.eof = False
@@ -229,13 +231,33 @@ class Session:
             self.translate_thread.join(timeout=15)
 
     def feed(self, payload):
+        pcm = np.frombuffer(payload, dtype="<i2").astype(np.float32) / 32768.0
+        with self.lock:
+            if self.configuring:
+                # start 还在处理（换语言要换引擎）：先攒着，等新流水线建好再一起交给它。
+                # 原来这里会直接 self.start()，用旧语言的流水线开跑——10-01 用户实测，
+                # 英语视频的开头被日语 Parakeet 识别了，而且计时起点被重置成负延迟。
+                self.pending.append(pcm)
+                self.received_samples += pcm.size
+                return
         if not self.running:
             # 客户端直接开始推流而没发 start 时也要能工作。
             self.start()
-        pcm = np.frombuffer(payload, dtype="<i2").astype(np.float32) / 32768.0
         with self.lock:
             self.pipeline.push_audio(pcm)
             self.received_samples += pcm.size
+
+    def begin_configuring(self):
+        with self.lock:
+            self.configuring = True
+
+    def finish_configuring(self):
+        """start 处理完：把配置期间攒下的音频按顺序交给（可能是新的）流水线。"""
+        with self.lock:
+            for pcm in self.pending:
+                self.pipeline.push_audio(pcm)
+            self.pending.clear()
+            self.configuring = False
 
     @property
     def audio_seconds(self):
@@ -529,10 +551,15 @@ async def handle(websocket, args, engine, translator=None, final_engine=None, po
                 continue
             kind = control.get("type")
             if kind == "start":
-                # 换语言可能要首次加载 SenseVoice（几秒），放到线程里，别卡住事件循环
-                language = await asyncio.to_thread(session.set_language,
-                                                   control.get("language", args.language))
-                applied = session.apply_options(control.get("options"))
+                # 换语言可能要现场加载引擎（几秒），放到线程里，别卡住事件循环；
+                # 这期间扩展已经在推音频了，feed() 会先把它们攒起来。
+                session.begin_configuring()
+                try:
+                    language = await asyncio.to_thread(session.set_language,
+                                                       control.get("language", args.language))
+                    applied = session.apply_options(control.get("options"))
+                finally:
+                    session.finish_configuring()
                 if session.log_path is None:
                     session.log_path = session_log_path(args)
                     if session.log_path is not None:

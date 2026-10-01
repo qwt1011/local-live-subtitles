@@ -74,26 +74,55 @@ def read_state():
         return {}
 
 
-def pid_alive(pid):
+def listener():
+    """正在监听服务端口的进程：(pid, 命令行)，没有则 None。
+
+    不能靠记录下来的 pid 判断：venv 里的 pythonw.exe 只是个转发器，它会再拉起真正的解释器
+    （10-01 用户实测：记下的 6744 早已退出，真正的服务是它的子进程 29820），
+    于是"记录的 pid 不在了"被误判成"服务是手动用 .bat 开的"，「停止服务」也就失灵了。
+    直接问系统谁在监听这个端口最可靠。
+    """
+    script = (f"$c = Get-NetTCPConnection -LocalPort {PORT} -State Listen -ErrorAction SilentlyContinue | "
+              "Select-Object -First 1; if ($c) { $p = Get-CimInstance Win32_Process -Filter "
+              "\"ProcessId=$($c.OwningProcess)\"; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+              "Write-Output \"$($c.OwningProcess)`t$($p.CommandLine)\" }")
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True,
+                            creationflags=CREATE_NO_WINDOW)
+    line = result.stdout.decode("utf-8", "replace").strip()
+    if not line:
+        return None
+    pid, _, command = line.partition("	")
+    return int(pid), command
+
+
+def _alive(pid):
+    """转发器进程还在不在（只用于判断"正在启动"，不用于判断服务本身）。"""
     if not pid:
         return False
     result = subprocess.run(["tasklist", "/FI", f"PID eq {int(pid)}", "/NH", "/FO", "CSV"],
-                            capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
-    return f'"{int(pid)}"' in result.stdout
+                            capture_output=True, creationflags=CREATE_NO_WINDOW)
+    return f'"{int(pid)}"'.encode() in result.stdout
+
+
+def is_ours(command):
+    """一键启动的服务带 --idle-exit（.bat 手动启动的不带），且跑的是本项目的 run_service.py。"""
+    return "run_service.py" in command and "--idle-exit" in command and str(ROOT).lower() in command.lower()
 
 
 def status():
     state = read_state()
-    alive = pid_alive(state.get("pid"))
+    found = listener() if port_open() else None
+    managed = bool(found and is_ours(found[1]))
     return {
         "ok": True,
-        "running": port_open(),
-        # managed=True 表示是本宿主启动的后台服务；False 而 running=True 表示用户自己用 .bat 开的
-        "managed": alive,
-        "pid": state.get("pid") if alive else None,
-        "asr": state.get("asr") if alive else None,
-        "idle_minutes": state.get("idle_minutes") if alive else None,
-        "started_at": state.get("started_at") if alive else None,
+        "running": found is not None,
+        # managed=True：是一键启动的后台服务；False 而 running=True：用户自己用 .bat 开的
+        "managed": managed,
+        "pid": found[0] if found else None,
+        "asr": state.get("asr") if managed else None,
+        "en_asr": state.get("en_asr") if managed else None,
+        "idle_minutes": state.get("idle_minutes") if managed else None,
+        "started_at": state.get("started_at") if managed else None,
         "log": str(LOG),
     }
 
@@ -119,6 +148,12 @@ def start(asr="parakeet", idle_minutes=30, en_asr="parakeet"):
         idle_minutes = 30
     if port_open():
         return {**status(), "already": True}
+    # 防重入：服务加载模型要几秒到几十秒才开始监听端口，这期间再来一次 start（弹窗重开后又点了一次、
+    # 或 restart 紧跟着 start）会拉起第二个实例，两个抢同一个端口，后起的那个报错退出，
+    # 日志还会互相穿插（10-01 用户实测日志就是这样）。记下的启动时间在 90 秒内且进程还在，就当作"正在启动"。
+    state = read_state()
+    if state.get("started_at") and time.time() - state["started_at"] < 90 and _alive(state.get("pid")):
+        return {"ok": True, "starting": True, "already": True, "pid": state.get("pid"), "asr": state.get("asr")}
 
     RUNS.mkdir(parents=True, exist_ok=True)
     log = LOG.open("a", encoding="utf-8")
@@ -138,19 +173,21 @@ def start(asr="parakeet", idle_minutes=30, en_asr="parakeet"):
 
 
 def stop():
-    state = read_state()
-    pid = state.get("pid")
-    if pid and pid_alive(pid):
-        # /T 连同子进程一起结束（pythonw → 服务本身就是同一个进程，但保险起见）
-        subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"],
-                       capture_output=True, creationflags=CREATE_NO_WINDOW)
-        for _ in range(30):
-            if not port_open():
-                break
-            time.sleep(0.1)
-    elif port_open():
-        # 端口被占但不是本宿主启动的：多半是用户手动开的 .bat 窗口，不替用户关。
+    found = listener() if port_open() else None
+    if found and not is_ours(found[1]):
+        # 端口被占但不是一键启动的：多半是用户手动开的 .bat 窗口，不替用户关。
         return {"ok": False, "error": "服务是手动用 .bat 启动的，请直接关闭那个窗口"}
+    pids = {found[0]} if found else set()
+    recorded = read_state().get("pid")
+    if recorded:
+        pids.add(int(recorded))   # 转发器进程（多半已退出），一并清掉
+    for pid in pids:
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                       capture_output=True, creationflags=CREATE_NO_WINDOW)
+    for _ in range(50):
+        if not port_open():
+            break
+        time.sleep(0.1)
     STATE.unlink(missing_ok=True)
     return {**status(), "stopped": True}
 
