@@ -151,6 +151,21 @@ test('迟到的旧 revision 被丢弃（否则字幕会回跳）', () => {
   assert.strictEqual(state.outOfOrderCount, 1);
 });
 
+test('新会话清空旧字幕（10-01：英语切日语后旧字幕挡住新字幕约 150 秒）', () => {
+  const state = new Shared.SubtitleState(3);
+  for (let i = 0; i < 3; i += 1) state.apply({ ...event(i, 9, `English ${i}`, true), session: 100 });
+  // 新会话的 segment_id 从 0 开始、revision 很小：不清空的话会被当成迟到的旧版本丢掉
+  assert.strictEqual(state.apply({ ...event(0, 1, '日本語', false), session: 200 }), true);
+  assert.deepStrictEqual(state.lines().map((row) => row.original), ['日本語']);
+});
+
+test('旧会话迟到的事件被丢弃', () => {
+  const state = new Shared.SubtitleState(3);
+  state.apply({ ...event(0, 1, '新会话', true), session: 200 });
+  assert.strictEqual(state.apply({ ...event(5, 3, '旧会话', true), session: 100 }), false);
+  assert.deepStrictEqual(state.lines().map((row) => row.original), ['新会话']);
+});
+
 test('相同 revision 重复到达不重复应用', () => {
   const state = new Shared.SubtitleState(2);
   state.apply(event(0, 2, '甲', true));

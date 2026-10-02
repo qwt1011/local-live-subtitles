@@ -76,7 +76,7 @@ iframe{border:0;width:100%;height:420px;display:block;background:transparent;col
         <div class="bar">
           <span class="title">本地实时字幕</span>
           <button type="button" class="min" title="收起" aria-label="收起面板">–</button>
-          <button type="button" class="close" title="隐藏浮窗（Alt+S 重新显示）" aria-label="隐藏浮窗">×</button>
+          <button type="button" class="close" title="隐藏浮窗（按 Alt+S，或在扩展弹窗顶部打开「浮窗」开关找回）" aria-label="隐藏浮窗">×</button>
         </div>
         <iframe title="本地实时字幕设置" allow="" src="${chrome.runtime.getURL('popup.html?embedded=1')}"></iframe>
         <div class="grip" title="拖动调整宽度" aria-hidden="true"></div>

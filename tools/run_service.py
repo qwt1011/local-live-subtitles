@@ -110,6 +110,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-translate", action="store_true", help="只出原文，不加载翻译模型")
+    parser.add_argument("--no-preload", action="store_true", help="不在启动后预加载英语识别模型")
     parser.add_argument("--language", default="ja")
     parser.add_argument("--en-asr", default="parakeet", choices=("parakeet", "sensevoice"),
                         help="英语会话的识别模型：parakeet（默认，Parakeet unified 英语版，更准）或 sensevoice（更快）")
@@ -121,6 +122,10 @@ def main():
     parser.add_argument("--log", default=None, help="把会话事件写入指定 JSONL（覆盖默认的按会话日志）")
     parser.add_argument("--no-log", action="store_true",
                         help="不写会话日志（默认每次会话写一份到 runs/live/，只保留最近 20 份）")
+    parser.add_argument("--threads", type=int, default=None, help="识别线程数（默认 CPU 逻辑核数 / 3）")
+    parser.add_argument("--partial-step", type=float, default=None, help="覆盖所有语言的草稿间隔（英语 Parakeet 默认 0.75，其他 0.5 秒）")
+    parser.add_argument("--en-threads", type=int, default=None, help="仅覆盖英语识别线程数（英语 Parakeet 默认最多 3）")
+    parser.add_argument("--en-partial-step", type=float, default=None, help="仅覆盖英语草稿刷新间隔")
     parser.add_argument("--idle-exit", type=float, default=0, metavar="SECONDS",
                         help="连续这么多秒没有采集就自动退出（0 = 不退出，扩展一键启动时会传入）")
     parser.add_argument("--async-finals", action="store_true",
@@ -165,6 +170,8 @@ def main():
              else ["--en-engine", "sensevoice", "--en-model", "sensevoice-2024"])
     if not args.no_translate:
         argv += ["--translate", "--translate-engine", args.translate_engine]
+    if args.no_preload:
+        argv += ["--no-preload"]
     # 默认写日志：用户实测后能直接复盘逐句识别、延迟和过滤情况（09-30 双开关实测就因为没日志没法分析）。
     # 只存文本和时间，一小时约 1.6MB，会话结束时写一次。
     if args.log:
@@ -175,6 +182,14 @@ def main():
         argv += ["--async-finals"]
     if args.idle_exit:
         argv += ["--idle-exit", str(args.idle_exit)]
+    if args.threads:
+        argv += ["--threads", str(args.threads)]
+    if args.partial_step:
+        argv += ["--partial-step", str(args.partial_step)]
+    if args.en_threads:
+        argv += ["--en-threads", str(args.en_threads)]
+    if args.en_partial_step:
+        argv += ["--en-partial-step", str(args.en_partial_step)]
     if args.early_final:
         argv += ["--early-final"]
     if args.adaptive_silence is not None:

@@ -5,7 +5,7 @@
 
 - 识别：日语用 Parakeet-TDT-CTC 0.6B 日语版，英语用 Parakeet unified 0.6B（都可换成更快的 SenseVoice），经 sherpa-onnx 推理
 - 翻译：腾讯 Hy-MT2-1.8B（GGUF Q4_K_M，llama.cpp）
-- 在 i5-13500H 笔记本上实测：原文在说完后约 0.5 秒出现，中文约 1 秒（p50）
+- 在 i5-13500H 笔记本较空闲时实测：定稿原文在说完后约 0.5 秒出现，中文约 1 秒（p50）；机器忙时可升至数秒，详见 [实测记录](docs/WORKLOG.md)
 
 > 状态：个人项目，日语 → 中文、英语 → 中文都可日常使用。目前只支持 Windows + Chrome。
 
@@ -19,13 +19,13 @@ Chrome 标签页 ──tabCapture──▶ 扩展 offscreen（16 kHz PCM）─�
 页面字幕覆盖层 ◀────────── 草稿 / 定稿 / 译文事件（同一句的 revision 单调递增）◀─┘
 ```
 
-- 说话过程中每 0.5 秒刷新一次草稿，停顿 0.35 秒后定稿，定稿才送去翻译；
+- 说话过程中持续刷新草稿（日语 0.5 秒、英语 Parakeet 0.75 秒），停顿 0.35 秒后定稿，定稿才送去翻译；
 - 原文先出现，中文稍后在同一行原地补上，不会闪烁或回跳；
 - 服务只监听回环地址，没有鉴权，**不要把端口暴露到局域网**。
 
 ## 安装
 
-需要 Windows、Chrome 116+、Python 3.13（其他 3.10+ 版本未测）。模型约 2.5GB，运行时内存约 3.5GB。
+需要 Windows、Chrome 116+，推荐 Python 3.13（已测试）；实时评测工具需要 Python 3.11+。模型约 2.5GB，运行时内存约 3.5GB。
 
 ```powershell
 git clone https://github.com/qwt1011/local-live-subtitles.git
@@ -33,9 +33,9 @@ cd local-live-subtitles
 python -m venv .venv                # 启动脚本依次找 .venv、..\..\.venv、PATH 里的 python
 .venv\Scripts\activate
 
-pip install -r requirements.txt
-# llama-cpp-python 在 PyPI 只有源码包，没有编译器时用预编译 CPU wheel：
-pip install llama-cpp-python==0.3.35 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# 先安装预编译 CPU wheel，避免安装 requirements 时尝试本地编译：
+python -m pip install llama-cpp-python==0.3.35 --only-binary=llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+python -m pip install -r requirements.txt
 
 # 下载模型（内置镜像列表，按速度逐个尝试）
 python tools\setup_models.py --engine parakeet-ja           # 日语识别，约 625MB
@@ -66,9 +66,24 @@ python tools\setup_models.py --engine hy-mt2                # 翻译，约 1.1GB
 | 语言 | 日语 / 英语。切换不用重启服务：两种语言的识别模型服务启动时都会加载 |
 | 识别 | 按当前语言列出可选模型：Parakeet（更准，默认）/ SenseVoice（更快）/ 混合（仅日语，实验）。换模型会自动重启服务 |
 | 显示 | 原文+中文 / 原文 / 中文 |
+| 浮窗 | 在字幕进行中的页面显示可拖动、可调宽的控制面板；关闭后可用此开关找回 |
 | 高级 | 实验开关、闲置自动关闭时长、查看服务日志、停止服务 |
 
 字幕可以拖动位置，滚轮调字号，全屏时也会显示。
+
+首次开始字幕仍需点扩展图标；之后可在网页浮窗操作。`Alt+S` 显示/隐藏浮窗，`Alt+Shift+S` 打开扩展弹窗。
+要换视频标签页，在目标页面打开扩展弹窗，点「切换到这个标签页」。同一时间捕获一个标签页。
+
+**更新已有安装**：拉取代码后，先停止旧服务，在 `chrome://extensions` 重新加载扩展，刷新视频页，再启动字幕。
+项目路径没有变化时不需要重新安装一键启动。
+
+英语 Parakeet 默认最多 3 个识别线程、0.75 秒草稿间隔，日语保持原配置。手动启动时可仅覆盖英语参数：
+
+```powershell
+python tools\run_service.py --en-threads 3 --en-partial-step 0.75
+```
+
+这些参数的复测依据和全局覆盖方式见 [开发说明](DEVELOPMENT.md#英语运行参数)。
 
 每次会话的逐句识别、翻译和延迟会写到 `runs/live/`（只保留最近 20 份，不入库），出问题时可以用它复盘。
 
@@ -92,18 +107,20 @@ legacy/              早期原型脚本
 ## 开发
 
 ```powershell
-python tests\test_open_utterance.py      # 流水线单元测试
+python -m unittest discover -s tests -p "test_*.py"  # 不需要模型或音频的 Python 单元测试
 node tests\test_extension_logic.js       # 扩展纯逻辑测试
+node tests\test_offscreen_session.js     # 切换会话后的旧连接事件隔离
 node tests\test_probe_service.js         # 需要 8766 上有服务在跑
 node tests\test_ws_protocol.js           # 同上，另需 sample_0230_0300.wav
 ```
 
-评测集的音频来自一个 YouTube 视频，版权原因不入库。要复现评测，先用 yt-dlp 下载 `eval/manifest.json` 里的源视频到项目根目录，
+运行 JavaScript 测试需 Node.js 22+。评测音频来自日语、英语各一个 YouTube 视频，版权原因不入库。要复现评测，先用 yt-dlp 下载 `eval/manifest.json` 里的源视频到项目根目录（文件名需与清单一致），
 再运行 `python tools\build_eval.py` 切出片段，然后：
 
 ```powershell
 python tools\eval_suite.py --engine sherpa --model parakeet-ja --tag my_run     # 离线回放：字错率 + 延迟
 python tools\live_bench.py --tag my_live -- --asr parakeet                       # 真起服务按 1x 推流：含翻译的真实延迟
+python tools\live_bench.py --tag my_en --clips en_asmr_0100 en_asmr_0800 -- --asr parakeet --en-asr parakeet
 ```
 
 设计与取舍见 [DEVELOPMENT.md](DEVELOPMENT.md)，完整的实验过程见 [docs/](docs/)。
@@ -112,7 +129,8 @@ python tools\live_bench.py --tag my_live -- --asr parakeet                      
 
 - 两种语言的识别模型加上翻译，服务常驻内存约 3.5GB；只看日语可以用 `--no-preload` 让英语模型等第一次用到时再加载。
 - 长句要等说完才定稿翻译，10 秒以上的句子中文会晚到（长句分句的研究结论见 `docs/WORKLOG.md`）。
-- 评测集只有 5 段、同一个说话人，参考文本是多模型交叉裁定、未经人工听写，只适合比较配置的相对好坏。
+- 评测集为日语、英语各 5 段，每种语言只覆盖一个视频/说话人；参考文本未经人工听写，只适合比较配置的相对好坏。
+- 称呼一致性功能尚未实现；当前逐句翻译，可能出现称呼变化、碎句或漏译。
 - 只测过 Windows 11 + Chrome 154。
 
 ## 许可证

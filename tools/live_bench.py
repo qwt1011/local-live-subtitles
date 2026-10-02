@@ -17,6 +17,7 @@
 import argparse
 import asyncio
 import json
+import os
 import socket
 import statistics
 import subprocess
@@ -52,11 +53,19 @@ def wait_port(port, timeout=120):
     return False
 
 
-async def stream(port, pcm):
+async def stream(port, pcm, language="ja", drain_seconds=20):
     import websockets
     events = []
     async with websockets.connect(f"ws://127.0.0.1:{port}", max_size=None) as ws:
-        await ws.send(json.dumps({"type": "start", "language": "ja", "options": {}}))
+        await ws.send(json.dumps({"type": "start", "language": language, "options": {}}))
+        # Exclude model loading from steady-state latency measurements.
+        async with asyncio.timeout(120):
+            while True:
+                ready = json.loads(await ws.recv())
+                if ready.get("type") == "error":
+                    raise RuntimeError(ready)
+                if ready.get("state") == "listening":
+                    break
         t0 = time.perf_counter()
 
         async def feed():
@@ -67,20 +76,17 @@ async def stream(port, pcm):
                 if delay > 0:
                     await asyncio.sleep(delay)
                 await ws.send(pcm[i:i + FRAME].tobytes())
-            await asyncio.sleep(6)   # 让最后一句定稿和翻译回来
+            await asyncio.sleep(drain_seconds)
             await ws.close()
 
-        task = asyncio.create_task(feed())
-        try:
+        async with asyncio.TaskGroup() as group:
+            group.create_task(feed())
             async for message in ws:
                 if isinstance(message, str):
                     event = json.loads(message)
                     if event.get("type") == "event":
                         event["_recv"] = time.perf_counter() - t0
                         events.append(event)
-        except Exception:
-            pass
-        await task
     return events
 
 
@@ -97,7 +103,10 @@ def analyze(events):
             if seg in last_partial:
                 gaps.append(e["_recv"] - last_partial[seg])
             last_partial[seg] = e["_recv"]
+    final_ids = {e["segment_id"] for e in events if e.get("is_final") and e.get("text")}
+    translated_ids = {e["segment_id"] for e in events if e.get("translation")}
     return {"finals": len(finals), "translated": len(zh),
+            "missing_translations": len(final_ids - translated_ids),
             "partial_gap_p50": pct(gaps, 0.5), "partial_gap_p90": pct(gaps, 0.9),
             "final_p50": pct(finals, 0.5), "final_p90": pct(finals, 0.9),
             "zh_p50": pct(zh, 0.5), "zh_p90": pct(zh, 0.9)}
@@ -108,9 +117,13 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--clips", nargs="*", default=["ja_asmr_0230", "ja_asmr_0930"])
     parser.add_argument("--port", type=int, default=8767)
+    parser.add_argument("--drain-seconds", type=float, default=20)
     parser.add_argument("server_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     extra = [a for a in args.server_args if a != "--"]
+    with socket.socket() as probe:
+        if probe.connect_ex(("127.0.0.1", args.port)) == 0:
+            raise SystemExit(f"评测端口 {args.port} 已被占用")
 
     server = subprocess.Popen(
         [sys.executable, "-u", str(ROOT / "tools" / "run_service.py"), "--port", str(args.port),
@@ -121,26 +134,37 @@ def main():
             raise SystemExit("服务没起来")
         time.sleep(1)
         rows = []
+        recordings = []
         for clip in args.clips:
             pcm = decode_audio(str(ROOT / "eval" / "audio" / f"{clip}.wav"), sampling_rate=SAMPLE_RATE)
             pcm = (np.clip(pcm, -1, 1) * 32767).astype("<i2")
-            events = asyncio.run(stream(args.port, pcm))
+            events = asyncio.run(stream(args.port, pcm, "en" if clip.startswith("en_") else "ja",
+                                        args.drain_seconds))
+            recordings.append({"clip": clip, "events": events})
             row = {"clip": clip, **analyze(events)}
             rows.append(row)
             print(json.dumps(row, ensure_ascii=False), flush=True)
     finally:
-        server.kill()
+        # Windows venv executables launch a child interpreter.
+        if os.name == "nt" and server.poll() is None:
+            subprocess.run(["taskkill", "/PID", str(server.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        elif server.poll() is None:
+            server.kill()
         server.wait()
 
     def mean(key):
         values = [r[key] for r in rows if r[key] is not None]
         return round(statistics.fmean(values), 3) if values else None
 
-    total = {k: mean(k) for k in rows[0] if k not in ("clip", "finals", "translated")}
+    total = {k: mean(k) for k in rows[0]
+             if k not in ("clip", "finals", "translated", "missing_translations")}
     print(f"[{args.tag}] " + " ".join(f"{k}={v}" for k, v in total.items()), flush=True)
     out = ROOT / "runs" / "live_bench" / f"{args.tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"server_args": extra, "total": total, "clips": rows},
+    out.write_text(json.dumps({"server_args": extra, "drain_seconds": args.drain_seconds,
+                              "aggregation": "mean of per-clip percentiles",
+                              "total": total, "clips": rows, "recordings": recordings},
                               ensure_ascii=False, indent=1), encoding="utf-8")
 
 

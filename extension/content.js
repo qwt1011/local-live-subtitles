@@ -230,6 +230,9 @@
         }
         render();
       }
+    } else if (message.type === 'clear-subtitles') {
+      state.reset();
+      render();
     } else if (message.type === 'status') {
       // 连接状态只在 popup 里展示，覆盖层不显示，避免打扰观看。
       if (message.status && message.status.error) {
@@ -286,7 +289,7 @@
     document.addEventListener('fullscreenchange', mount, true);
     document.addEventListener('webkitfullscreenchange', mount, true);
     chrome.runtime.onMessage.addListener(handleMessage);
-    console.log(`[本地字幕] content script 已就绪（v0.6.0${standaloneMedia ? '，本地媒体' : ''}）`);
+    console.log(`[本地字幕] content script 已就绪（v0.6.1${standaloneMedia ? '，本地媒体' : ''}）`);
   }
 
   init();

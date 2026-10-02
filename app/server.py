@@ -37,6 +37,7 @@
 import argparse
 import asyncio
 import json
+import os
 import queue
 import threading
 import time
@@ -51,6 +52,22 @@ from .pipelines.open_utterance import OpenUtterancePipeline
 SAMPLE_RATE = 16000
 MAX_EVENT_QUEUE = 64
 MAX_TRANSLATE_QUEUE = 16
+
+
+def asr_settings(args, language, engine, model):
+    """Resolve per-language defaults without overriding explicit global settings."""
+    english_parakeet = language == "en" and engine == "sherpa" and "parakeet" in str(model).lower()
+    threads = getattr(args, "en_threads", None) if language == "en" else None
+    if threads is None:
+        threads = args.threads
+    if threads is None and english_parakeet:
+        threads = min(3, max(1, (os.cpu_count() or 4) // 3))
+    step = getattr(args, "en_partial_step", None) if language == "en" else None
+    if step is None:
+        step = args.partial_step
+    if step is None:
+        step = 0.75 if english_parakeet else 0.5
+    return threads, step
 
 
 class EnginePool:
@@ -80,12 +97,15 @@ class EnginePool:
                 print(f"首次使用 {language}：加载 {name} / {model} …", flush=True)
                 began = time.perf_counter()
                 try:
-                    engine = create_engine(name, model, language=language, threads=self.args.threads)
+                    threads, _ = asr_settings(self.args, language, name, model)
+                    engine = create_engine(name, model, language=language,
+                                           threads=threads)
                 except SystemExit as exc:
                     # 模型没下载：退回 SenseVoice，别让整个会话起不来
                     print(f"  加载失败（{exc}），改用 SenseVoice", flush=True)
+                    threads, _ = asr_settings(self.args, language, "sensevoice", "sensevoice-2024")
                     engine = create_engine("sensevoice", "sensevoice-2024", language=language,
-                                           threads=self.args.threads)
+                                           threads=threads)
                 print(f"{language} 引擎就绪（{time.perf_counter() - began:.2f}s）", flush=True)
                 # 混合模式的定稿引擎是日语 Parakeet，其他语言不用它
                 self.engines[language] = (engine, None)
@@ -139,12 +159,13 @@ class Session:
 
     def _build_pipeline(self, engine, final_engine, language):
         args = self.args
+        _, step = asr_settings(args, language, engine.name, getattr(engine, "model_name", ""))
         return OpenUtterancePipeline(
             engine,
             language=language,
             min_speech=args.min_speech,
             min_silence=args.min_silence,
-            partial_step=args.partial_step,
+            partial_step=step,
             max_utterance=args.max_utterance,
             call_timeout=args.call_timeout,
             drop_fillers=not args.keep_fillers,
@@ -632,8 +653,9 @@ async def main_async(args):
 
     print(f"加载 {args.engine} / {args.model} ...", flush=True)
     began = time.perf_counter()
+    threads, _ = asr_settings(args, args.language, args.engine, args.model)
     engine = create_engine(args.engine, args.model, language=args.language,
-                           threads=args.threads)
+                           threads=threads)
     print(f"引擎就绪（{time.perf_counter() - began:.2f}s，含预热）", flush=True)
 
     final_engine = None
@@ -687,6 +709,8 @@ def main():
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--language", default="ja")
     parser.add_argument("--threads", type=int, default=None)
+    parser.add_argument("--en-threads", type=int, default=None,
+                        help="覆盖英语识别线程数（英语 Parakeet 默认最多 3 线程）")
     parser.add_argument("--no-preload", action="store_true",
                         help="不在启动后预加载英语引擎（省约 600MB 内存；首次英语会话会现场加载）")
     parser.add_argument("--en-engine", default="sherpa", choices=ENGINES,
@@ -703,7 +727,10 @@ def main():
                         help="实验：定稿放进独立线程（09-30 实测因抢 CPU 反而更慢，默认关闭）")
     parser.add_argument("--min-speech", type=float, default=0.4)
     parser.add_argument("--min-silence", type=float, default=0.35)
-    parser.add_argument("--partial-step", type=float, default=0.5)
+    parser.add_argument("--partial-step", type=float, default=None,
+                        help="覆盖所有语言的草稿间隔（英语 Parakeet 默认 0.75，其他 0.5 秒）")
+    parser.add_argument("--en-partial-step", type=float, default=None,
+                        help="仅覆盖英语草稿刷新间隔")
     parser.add_argument("--max-utterance", type=float, default=10.0)
     parser.add_argument("--call-timeout", type=float, default=None)
     parser.add_argument("--keep-fillers", action="store_true",

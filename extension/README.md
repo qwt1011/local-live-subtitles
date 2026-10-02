@@ -1,4 +1,4 @@
-# 扩展（v0.6.0）
+# 扩展（v0.6.1）
 
 Chrome MV3 扩展：捕获当前标签页音频，推给本地服务，把识别和翻译结果叠在视频上。安装和日常使用见 [根目录 README](../README.md)。
 
@@ -24,10 +24,10 @@ Chrome MV3 扩展：捕获当前标签页音频，推给本地服务，把识别
 
 1. `chrome://extensions` → 本扩展 → 点刷新图标 ↻（service worker、offscreen 才会换成新代码）；
 2. 关掉再重新打开弹窗；
-3. 视频页不用刷新：开始字幕时如果页面里没有字幕脚本，`background.js` 会自动注入。
+3. 刷新视频页，清掉旧的页面脚本；缺少字幕脚本时 `background.js` 也会自动补注入。
 
 **确认加载的是新版本**：扩展卡片上的版本号，或页面 F12 里的
-`[本地字幕] content script 已就绪（v0.6.0）`。
+`[本地字幕] content script 已就绪（v0.6.1）`。
 
 ## 排查：三个 Console 分别在哪
 
@@ -61,7 +61,8 @@ Chrome 规定开始捕获必须由扩展自己的界面触发：浮窗里嵌的�
 ## 自动化测试
 
 ```powershell
-node tests\test_extension_logic.js   # 37 项：PCM 分帧、revision 单调性、挂载点、本地媒体识别、存储兜底
+node tests\test_extension_logic.js   # PCM 分帧、会话隔离、revision 单调性、挂载点、存储兜底
+node tests\test_offscreen_session.js # 旧连接迟到事件不能污染新会话
 node tests\test_probe_service.js     #  4 项：弹窗的服务探测（需服务在跑）
 node tests\test_ws_protocol.js       #  9 项：帧格式与服务端协议对得上（需服务在跑）
 ```

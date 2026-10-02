@@ -23,6 +23,7 @@ const HOST = 'local.live_subtitles';
 const $ = (selector) => document.querySelector(selector);
 const ui = {
   enabled: $('#enabled'),
+  panelShown: $('#panelShown'),
   statusDot: $('#statusDot'),
   statusTitle: $('#statusTitle'),
   statusDetail: $('#statusDetail'),
@@ -41,7 +42,7 @@ const ui = {
 };
 
 const DEFAULTS = {
-  enabled: true, language: 'ja', mode: 'bilingual', asr: 'parakeet', enAsr: 'parakeet', idleMinutes: 30,
+  enabled: true, panelHidden: false, panelOpen: false, language: 'ja', mode: 'bilingual', asr: 'parakeet', enAsr: 'parakeet', idleMinutes: 30,
   earlyFinal: false, adaptiveSilence: false,
 };
 
@@ -420,6 +421,9 @@ function save(patch) {
 }
 
 ui.enabled.addEventListener('change', () => save({ enabled: ui.enabled.checked }));
+// 打开浮窗开关时顺便展开面板：用户找浮窗多半是想用它，不是想看那个小圆钮
+ui.panelShown.addEventListener('change', () => save(ui.panelShown.checked
+  ? { panelHidden: false, panelOpen: true } : { panelHidden: true }));
 ui.earlyFinal.addEventListener('change', () => save({ earlyFinal: ui.earlyFinal.checked }));
 ui.adaptiveSilence.addEventListener('change', () => save({ adaptiveSilence: ui.adaptiveSilence.checked }));
 ui.idle.addEventListener('change', () => save({ idleMinutes: Number(ui.idle.value) }));
@@ -453,6 +457,10 @@ for (const group of document.querySelectorAll('.segmented')) {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.panelHidden) {
+    settings.panelHidden = Boolean(changes.panelHidden.newValue);
+    ui.panelShown.checked = !settings.panelHidden;
+  }
   if (area === 'session' && (changes.captureStatus || changes.capturing)) {
     if (changes.captureStatus) view.capture = changes.captureStatus.newValue || null;
     if (changes.capturing) view.capturing = Boolean(changes.capturing.newValue);
@@ -466,6 +474,7 @@ async function init() {
   const value = await chrome.storage.local.get(DEFAULTS);
   Object.assign(settings, value);
   ui.enabled.checked = settings.enabled;
+  ui.panelShown.checked = !settings.panelHidden;
   renderAsrOptions();
   ui.idle.value = String(settings.idleMinutes);
   ui.earlyFinal.checked = settings.earlyFinal;

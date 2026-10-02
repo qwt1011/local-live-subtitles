@@ -22,6 +22,11 @@ let sessionOptions = {};   // 实验开关，随 start 消息交给服务端
 let connected = false;
 let sentFrames = 0;
 let sentSamples = 0;
+// 每次开始捕获生成一个新的会话号，随字幕事件一起发给页面。
+// 服务端每个会话的 segment_id 都从 0 开始：不区分会话的话，上一个会话留在页面上的旧字幕
+// 会和新会话的同号句子撞车（revision 比新的大，新字幕被当成"迟到的旧版本"丢掉），
+// 直到新会话的 segment_id 超过旧的最大值才恢复——10-01 用户实测：英语切日语后约 150 秒仍显示英文。
+let sessionId = 0;
 
 /**
  * 上报状态。**整个函数都不能抛异常**——它是遥测，不该有能力弄坏采集。
@@ -60,6 +65,7 @@ function publishStatus(patch) {
 async function start(streamId, language, options) {
   await stop();
   sessionLanguage = language || 'ja';
+  sessionId = Math.max(Date.now(), sessionId + 1);
   sessionOptions = options || {};
   sentFrames = 0;
   sentSamples = 0;
@@ -122,12 +128,15 @@ function connectSocket(language) {
       return;
     }
     socket.binaryType = 'arraybuffer';
+    const connection = socket;
+    const connectionSession = sessionId;
 
     // 连不上时不要让第 ⑥ 步永远挂着。
     const timer = setTimeout(() => reject(new Error(`连接 ${Shared.WS_URL} 超时`)), 5000);
 
     socket.onopen = () => {
       clearTimeout(timer);
+      if (socket !== connection) { reject(new Error('Capture stopped')); return; }
       connected = true;
       socket.send(JSON.stringify({ type: 'start', language, options: sessionOptions }));
       publishStatus({ connected: true, state: 'listening', step: null, error: null });
@@ -136,17 +145,20 @@ function connectSocket(language) {
 
     socket.onerror = () => {
       clearTimeout(timer);
+      if (socket !== connection) { reject(new Error('Capture stopped')); return; }
       publishStatus({ connected: false, error: `无法连接本地流式服务（${Shared.WS_URL}）` });
       reject(new Error(`无法连接 ${Shared.WS_URL}`));
     };
 
     socket.onclose = () => {
       clearTimeout(timer);
+      if (socket !== connection) return;
       connected = false;
       publishStatus({ connected: false, state: 'closed' });
     };
 
     socket.onmessage = (event) => {
+      if (socket !== connection) return;
       let payload;
       try {
         payload = JSON.parse(event.data);
@@ -159,7 +171,8 @@ function connectSocket(language) {
       }
       if (payload.type === 'event') {
         // 只做转发，渲染由 content script 负责。
-        chrome.runtime.sendMessage({ type: 'subtitle-event', payload }).catch(() => {});
+        chrome.runtime.sendMessage({ type: 'subtitle-event', payload: { ...payload, session: connectionSession } })
+          .catch(() => {});
         publishStatus({
           connected: true,
           lastLatency: payload.latency,

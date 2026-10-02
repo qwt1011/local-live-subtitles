@@ -189,6 +189,8 @@ async function ensureOffscreenDocument() {
 }
 
 async function stopCapture() {
+  const previous = (await getState())[SESSION_KEYS.activeTabId];
+  if (previous) chrome.tabs.sendMessage(previous, { type: 'clear-subtitles' }).catch(() => {});
   await setState({ [SESSION_KEYS.capturing]: false });
   // 停止时不重试：offscreen 可能压根没创建过，等它没意义。
   await sendToOffscreen({ type: 'offscreen-stop' }, { retries: 1 });

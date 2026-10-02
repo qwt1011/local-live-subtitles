@@ -104,6 +104,12 @@
       this.eventCount += 1;
       this.lastEventAt = Date.now();
 
+      // 新会话（重新开始字幕、切换标签页或语言）：segment_id 从 0 重新编号，旧字幕必须清掉
+      if (event.session !== undefined && event.session !== this.session) {
+        if (this.session !== undefined && event.session < this.session) return false;   // 旧会话迟到的事件
+        this.segments.clear();
+        this.session = event.session;
+      }
       const previous = this.segments.get(event.segment_id);
       if (previous && event.revision <= previous.revision) {
         // 迟到的旧 revision：丢弃，否则用户会看到字幕倒退。
@@ -137,6 +143,7 @@
 
     reset() {
       this.segments.clear();
+      this.session = undefined;
       this.eventCount = 0;
       this.appliedCount = 0;
       this.outOfOrderCount = 0;

@@ -17,7 +17,7 @@ tools/run_service.py   启动前预检 + 选识别模型（--asr parakeet|sensev
 
 app/server.py          会话：识别线程 + 翻译线程；事件回推；会话日志；闲置退出
 app/pipelines/open_utterance.py
-                       流式内核：VAD 找句子边界，开放段每 0.5s 重解码一次出草稿，
+                       流式内核：VAD 找句子边界，开放段每 0.5s 重解码一次出草稿（英语 Parakeet 0.75s），
                        静音 0.35s 定稿（或 10s 强制切断）；语气词过滤；两个实验开关
 app/asr/               sherpa_offline_engine（Parakeet）/ sensevoice_engine / faster_whisper_engine（对照）
 app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备选）/ nllb_ct2（已证实不可用，留作记录）
@@ -56,6 +56,13 @@ app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备�
 | 语气词整句过滤 | 「う」「へへ」「ふふふ」单独成句时置空，CER 0.093 → 0.071 |
 | 静音阈值保持 0.35s | 0.5 / 0.6 的 CER 差异在噪声内，但定稿延迟变长 |
 
+### 英语运行参数
+
+英语 Parakeet 默认最多 3 个识别线程、0.75s 草稿间隔，缓解识别与翻译争抢 CPU；日语和 SenseVoice 保持原默认值。
+`--threads` / `--partial-step` 可覆盖所有语言，`--en-threads` / `--en-partial-step` 仅覆盖英语且优先级更高。
+参数在创建引擎和切换语言重建流水线时解析，缺模型回退到 SenseVoice 后也按实际引擎取默认值。
+复测数字及适用范围见 `docs/WORKLOG.md` 的英语延迟参数复测记录。
+
 ### 实验开关（默认关闭）
 
 - `early_final`（粘连句提前定稿）：两句话之间停顿不到 0.35s 被 VAD 粘在一起时，用 token 时间戳把前半句切出来先定稿；
@@ -66,7 +73,7 @@ app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备�
 
 ## 评测
 
-**评测集**（`eval/`）：同一个 ASMR 视频的 5 段 × 60 秒，按音量和语音密度挑选（最轻、稀疏、密集等）。
+**评测集**（`eval/`）：日语和英语各一个 ASMR 视频，每种语言 5 段 × 60 秒，按音量和语音密度挑选（最轻、稀疏、密集等）。
 参考文本是 whisper large-v3 与 small 交叉比对后语义裁定的（`status: consensus`），**没有人工听写**，
 适合比较两个配置的相对好坏，不代表绝对准确率。音频不入库，用 `tools/build_eval.py` 从源视频切出。
 
@@ -83,8 +90,9 @@ app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备�
 ## 测试
 
 ```powershell
-python tests\test_open_utterance.py      # 流水线：语气词、断句、提前定稿、混合引擎、Parakeet 清洗
+python -m unittest discover -s tests -p "test_*.py"  # 流水线、语言参数、启动器、评测协议
 node tests\test_extension_logic.js       # 扩展：分帧、字幕状态机、挂载点、本地媒体识别
+node tests\test_offscreen_session.js     # 旧连接事件隔离
 node tests\test_probe_service.js         # 需要 8766 上有服务
 node tests\test_ws_protocol.js           # 需要服务 + sample_0230_0300.wav
 ```

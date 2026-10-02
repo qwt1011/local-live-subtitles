@@ -61,6 +61,9 @@ button, select, input { font: inherit; color: inherit; }
 
 h1 { font-size: 14px; font-weight: 600; margin: 0; }
 
+.top { gap: 10px; }
+.top h1 { margin-right: auto; }
+
 .top-toggle {
   display: flex;
   align-items: center;
@@ -338,5 +341,5 @@ select.compact { width: auto; flex: none; }
 
 /* 嵌入网页浮窗（popup.html?embedded=1）：宽度跟随浮窗，背景透明交给外层面板 */
 .embedded body { width: auto; padding: 10px 12px 12px; }
-.embedded h1 { display: none; }
+.embedded h1, .embedded .popup-only { display: none; }
 .embedded .top { justify-content: flex-end; margin-bottom: 8px; }
