@@ -1,0 +1,44 @@
+{
+ "server_args": [
+  "--asr",
+  "parakeet",
+  "--en-asr",
+  "parakeet",
+  "--threads",
+  "3",
+  "--partial-step",
+  "0.75"
+ ],
+ "total": {
+  "partial_gap_p50": 0.862,
+  "partial_gap_p90": 1.044,
+  "final_p50": 0.666,
+  "final_p90": 1.069,
+  "zh_p50": 1.336,
+  "zh_p90": 2.365
+ },
+ "clips": [
+  {
+   "clip": "en_asmr_0100",
+   "finals": 12,
+   "translated": 11,
+   "partial_gap_p50": 0.867714199997863,
+   "partial_gap_p90": 1.0339901000006648,
+   "final_p50": 0.6564926000008136,
+   "final_p90": 1.1311538000023589,
+   "zh_p50": 1.3893752000019894,
+   "zh_p90": 2.84063970000134
+  },
+  {
+   "clip": "en_asmr_0800",
+   "finals": 14,
+   "translated": 14,
+   "partial_gap_p50": 0.8560624000019743,
+   "partial_gap_p90": 1.054923299998336,
+   "final_p50": 0.6751396000001701,
+   "final_p90": 1.0063530000019814,
+   "zh_p50": 1.2821664000002784,
+   "zh_p90": 1.8899768999994553
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+{
+ "server_args": [
+  "--asr",
+  "parakeet",
+  "--en-asr",
+  "parakeet",
+  "--partial-step",
+  "0.75"
+ ],
+ "total": {
+  "partial_gap_p50": 0.877,
+  "partial_gap_p90": 0.957,
+  "final_p50": 0.761,
+  "final_p90": 1.045,
+  "zh_p50": 2.286,
+  "zh_p90": 3.797
+ },
+ "clips": [
+  {
+   "clip": "en_asmr_0100",
+   "finals": 11,
+   "translated": 10,
+   "partial_gap_p50": 0.8890695000009146,
+   "partial_gap_p90": 0.978225900002144,
+   "final_p50": 0.7150636999996784,
+   "final_p90": 1.1614718999982898,
+   "zh_p50": 2.4473992999985654,
+   "zh_p90": 4.531417999997942
+  },
+  {
+   "clip": "en_asmr_0800",
+   "finals": 15,
+   "translated": 15,
+   "partial_gap_p50": 0.8645778999998583,
+   "partial_gap_p90": 0.934860800000024,
+   "final_p50": 0.8067114000000011,
+   "final_p90": 0.9278153999998171,
+   "zh_p50": 2.1240748999984653,
+   "zh_p90": 3.063183699998568
+  }
+ ]
+}
