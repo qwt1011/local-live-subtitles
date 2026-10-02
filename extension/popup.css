@@ -266,6 +266,8 @@ select.compact { width: auto; flex: none; }
 .switch.small .track::after { width: 12px; height: 12px; }
 .switch.small input:checked + .track::after { transform: translateX(12px); }
 
+#resetAddresses { width: 28px; height: 28px; flex: none; padding: 0; margin-left: auto; font-size: 20px; }
+
 /* --- 高级 ------------------------------------------------------------------ */
 
 .advanced { margin-top: 10px; }

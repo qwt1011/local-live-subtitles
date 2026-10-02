@@ -1,0 +1,112 @@
+{
+  "cases": [
+    {
+      "source": "synthetic boundary test",
+      "text": "お兄さん、こっち。",
+      "original": "小哥，过来。",
+      "output": "哥哥，过来。",
+      "changed": true
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "ねえ、お兄さん。",
+      "original": "嘿，小哥。",
+      "output": "嘿，哥哥。",
+      "changed": true
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "Come here, dork.",
+      "original": "过来，呆子。",
+      "output": "过来，笨蛋。",
+      "changed": true
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "Listen, dummy.",
+      "original": "听着，傻瓜。",
+      "output": "听着，笨蛋。",
+      "changed": true
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "彼のお兄さん。",
+      "original": "他的小哥。",
+      "output": "他的小哥。",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "君のお兄さん。",
+      "original": "你的小哥。",
+      "output": "你的小哥。",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "お兄さんは医者です。",
+      "original": "小哥是医生。",
+      "output": "小哥是医生。",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "お兄さん。",
+      "original": "哥哥还是小哥？",
+      "output": "哥哥还是小哥？",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "お兄さん。",
+      "original": "小哥，小哥！",
+      "output": "小哥，小哥！",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "お兄さん。",
+      "original": "他说小哥来了。",
+      "output": "他说小哥来了。",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "He is a dummy.",
+      "original": "他是个呆子。",
+      "output": "他是个呆子。",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "I bought a dummy.",
+      "original": "我买了一个假人。",
+      "output": "我买了一个假人。",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "You better pick up Dork",
+      "original": "你最好去接Dork",
+      "output": "你最好去接Dork",
+      "changed": false
+    },
+    {
+      "source": "synthetic boundary test",
+      "text": "Good boy.",
+      "original": "真乖。",
+      "output": "真乖。",
+      "changed": false
+    }
+  ],
+  "calls": 14000,
+  "model_calls": 0,
+  "overhead_ms_p50": 0.0076,
+  "overhead_ms_p95": 0.0129,
+  "private_session_summary": {
+    "files": 20,
+    "translations": 1168,
+    "changes": 0,
+    "note": "Counts only; transcripts and paths excluded"
+  }
+}

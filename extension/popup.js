@@ -35,6 +35,8 @@ const ui = {
   asrHint: $('#asrHint'),
   earlyFinal: $('#earlyFinal'),
   adaptiveSilence: $('#adaptiveSilence'),
+  addressConsistency: $('#addressConsistency'),
+  resetAddresses: $('#resetAddresses'),
   idle: $('#idle'),
   viewLog: $('#viewLog'),
   stopService: $('#stopService'),
@@ -43,7 +45,7 @@ const ui = {
 
 const DEFAULTS = {
   enabled: true, panelHidden: false, panelOpen: false, language: 'ja', mode: 'bilingual', asr: 'parakeet', enAsr: 'parakeet', idleMinutes: 30,
-  earlyFinal: false, adaptiveSilence: false,
+  earlyFinal: false, adaptiveSilence: false, addressConsistency: false,
 };
 
 // 识别模型按语言分开选：日语和英语各记一个（asr / enAsr），服务启动时两个都传过去，
@@ -154,6 +156,10 @@ function setStatus(tone, title, detail) {
 }
 
 function render() {
+  const addressSupported = Boolean(view.probe && view.probe.address_consistency_supported);
+  ui.addressConsistency.disabled = Boolean(view.probe && !addressSupported);
+  ui.addressConsistency.title = view.probe && !addressSupported ? '请先重启字幕服务以使用称呼一致性' : '下次开始字幕时生效';
+  ui.resetAddresses.disabled = !view.capturing || !addressSupported;
   const { probe, host, capture, busy } = view;
   const running = Boolean(probe);
   const runningAsr = asrOf(probe);
@@ -305,6 +311,7 @@ function experimentOptions() {
   return {
     early_final: ui.earlyFinal.checked,
     adaptive_silence: ui.adaptiveSilence.checked ? 0.2 : null,
+    address_consistency: ui.addressConsistency.checked,
   };
 }
 
@@ -426,6 +433,12 @@ ui.panelShown.addEventListener('change', () => save(ui.panelShown.checked
   ? { panelHidden: false, panelOpen: true } : { panelHidden: true }));
 ui.earlyFinal.addEventListener('change', () => save({ earlyFinal: ui.earlyFinal.checked }));
 ui.adaptiveSilence.addEventListener('change', () => save({ adaptiveSilence: ui.adaptiveSilence.checked }));
+ui.addressConsistency.addEventListener('change', () => save({ addressConsistency: ui.addressConsistency.checked }));
+ui.resetAddresses.addEventListener('click', async () => {
+  const reply = await chrome.runtime.sendMessage({ type: 'reset-address-memory' }).catch((error) => ({ ok: false, error: String(error) }));
+  if (!reply || !reply.ok) view.lastError = reply?.error || '清除称呼记忆失败';
+  render();
+});
 ui.idle.addEventListener('change', () => save({ idleMinutes: Number(ui.idle.value) }));
 ui.asr.addEventListener('change', () => {
   save({ [ASR_KEY[settings.language]]: ui.asr.value });
@@ -457,6 +470,10 @@ for (const group of document.querySelectorAll('.segmented')) {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.addressConsistency) {
+    settings.addressConsistency = changes.addressConsistency.newValue === true;
+    ui.addressConsistency.checked = settings.addressConsistency;
+  }
   if (area === 'local' && changes.panelHidden) {
     settings.panelHidden = Boolean(changes.panelHidden.newValue);
     ui.panelShown.checked = !settings.panelHidden;
@@ -479,6 +496,7 @@ async function init() {
   ui.idle.value = String(settings.idleMinutes);
   ui.earlyFinal.checked = settings.earlyFinal;
   ui.adaptiveSilence.checked = settings.adaptiveSilence;
+  ui.addressConsistency.checked = settings.addressConsistency;
   renderSegments();
 
   let tab = null;

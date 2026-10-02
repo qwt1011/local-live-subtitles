@@ -65,11 +65,12 @@ app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备�
 
 ### 实验开关（默认关闭）
 
+- `address_consistency`（称呼一致性）：默认关闭的、翻译后局部统一功能。独立会话记忆、不增加 prompt 或推理次数；重置时隔离排队和在途译文。范围与失败的提示词实验见 [称呼一致性实验](docs/ADDRESS_CONSISTENCY.md)。
 - `early_final`（粘连句提前定稿）：两句话之间停顿不到 0.35s 被 VAD 粘在一起时，用 token 时间戳把前半句切出来先定稿；
 - `adaptive_silence`（句末短静音定稿）：草稿以ね/よ/わ/かしら/？结尾时，静音 0.2s 就定稿；
 - `hybrid` 识别：草稿 SenseVoice、定稿 Parakeet。
 
-三个都做过评测，收益在噪声范围内或更差，所以默认关闭。长句延迟是结构性的：要等这句话说完。
+`early_final`、`adaptive_silence`、`hybrid` 做过评测，收益在噪声范围内或更差，所以默认关闭。称呼一致性通过边界测试，但真实样本改善率尚未证实，也默认关闭。长句延迟是结构性的：要等这句话说完。
 
 ## 评测
 
@@ -93,6 +94,7 @@ app/translate/         hymt_gguf（默认）/ instruct_local（Qwen2.5-0.5B 备�
 python -m unittest discover -s tests -p "test_*.py"  # 流水线、语言参数、启动器、评测协议
 node tests\test_extension_logic.js       # 扩展：分帧、字幕状态机、挂载点、本地媒体识别
 node tests\test_offscreen_session.js     # 旧连接事件隔离
+node tests\test_address_navigation.js    # 页面变化时的称呼记忆隔离
 node tests\test_probe_service.js         # 需要 8766 上有服务
 node tests\test_ws_protocol.js           # 需要服务 + sample_0230_0300.wav
 ```

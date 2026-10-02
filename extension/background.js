@@ -66,6 +66,14 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   }
 });
 
+chrome.tabs.onUpdated.addListener(async (tabId, change) => {
+  if (!change.url) return;
+  const state = await getState();
+  if (state.capturing && state.activeTabId === tabId) {
+    await sendToOffscreen({ type: 'offscreen-reset-address-memory' }, { retries: 1 });
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 用 async IIFE 而不是让 listener 变成 async：
   // async listener 返回的 Promise 不会被 Chrome 等待，sendResponse 会失效。
@@ -77,6 +85,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } else if (message.type === 'stop-capture') {
         await stopCapture();
         sendResponse({ ok: true });
+      } else if (message.type === 'reset-address-memory') {
+        sendResponse(await sendToOffscreen({ type: 'offscreen-reset-address-memory' }, { retries: 1 }));
       } else if (message.type === 'subtitle-event') {
         await relayToTab({ type: 'subtitle', payload: message.payload });
         sendResponse({ ok: true });

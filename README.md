@@ -77,6 +77,10 @@ python tools\setup_models.py --engine hy-mt2                # 翻译，约 1.1GB
 **更新已有安装**：拉取代码后，先停止旧服务，在 `chrome://extensions` 重新加载扩展，刷新视频页，再启动字幕。
 项目路径没有变化时不需要重新安装一键启动。
 
+**称呼一致性（实验，默认关闭）**：在「高级」中打开后，下次开始字幕生效。它会记住当前会话中少量明确称呼的译法，
+只在原文和译文都能明确对齐时局部统一，不增加模型调用。旁边的回转箭头清除记忆；视频暂停保留记忆，
+换页面地址、语言或重新开始字幕时清空。尚未证明真实观看中的改善率，范围和实测见 [称呼一致性实验](docs/ADDRESS_CONSISTENCY.md)。
+
 英语 Parakeet 默认最多 3 个识别线程、0.75 秒草稿间隔，日语保持原配置。手动启动时可仅覆盖英语参数：
 
 ```powershell
@@ -110,6 +114,7 @@ legacy/              早期原型脚本
 python -m unittest discover -s tests -p "test_*.py"  # 不需要模型或音频的 Python 单元测试
 node tests\test_extension_logic.js       # 扩展纯逻辑测试
 node tests\test_offscreen_session.js     # 切换会话后的旧连接事件隔离
+node tests\test_address_navigation.js    # 换页面时清除称呼记忆
 node tests\test_probe_service.js         # 需要 8766 上有服务在跑
 node tests\test_ws_protocol.js           # 同上，另需 sample_0230_0300.wav
 ```
@@ -130,7 +135,7 @@ python tools\live_bench.py --tag my_en --clips en_asmr_0100 en_asmr_0800 -- --as
 - 两种语言的识别模型加上翻译，服务常驻内存约 3.5GB；只看日语可以用 `--no-preload` 让英语模型等第一次用到时再加载。
 - 长句要等说完才定稿翻译，10 秒以上的句子中文会晚到（长句分句的研究结论见 `docs/WORKLOG.md`）。
 - 评测集为日语、英语各 5 段，每种语言只覆盖一个视频/说话人；参考文本未经人工听写，只适合比较配置的相对好坏。
-- 称呼一致性功能尚未实现；当前逐句翻译，可能出现称呼变化、碎句或漏译。
+- 称呼一致性实验只覆盖少量明确呼语，不解决多角色指代、ASR 漏词或碎句。翻译仍按句进行，可能出现错误或漏译。
 - 只测过 Windows 11 + Chrome 154。
 
 ## 许可证

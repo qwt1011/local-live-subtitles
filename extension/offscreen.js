@@ -253,5 +253,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
+  if (message.type === 'offscreen-reset-address-memory') {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      sendResponse({ ok: false, error: '字幕连接未就绪' });
+    } else {
+      socket.send(JSON.stringify({ type: 'reset_address_memory' }));
+      sendResponse({ ok: true });
+    }
+    return false;
+  }
   return false;
 });

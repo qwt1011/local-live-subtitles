@@ -74,6 +74,14 @@
       高级
     </summary>
     <div class="advanced-body">
+      <div class="toggle-row">
+        <label for="addressConsistency">称呼一致性<small>实验</small></label>
+        <button id="resetAddresses" type="button" class="ghost" title="清除本段称呼记忆" aria-label="清除本段称呼记忆">↺</button>
+        <span class="switch small" title="下次开始字幕时生效">
+          <input id="addressConsistency" type="checkbox" role="switch">
+          <span class="track" aria-hidden="true"></span>
+        </span>
+      </div>
       <label class="toggle-row" title="两句话被连在一起识别时，前半句先定稿翻译">
         <span>粘连句提前定稿<small>实验 · 下次开始字幕时生效</small></span>
         <span class="switch small">

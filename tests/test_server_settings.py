@@ -69,6 +69,56 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(session.pipeline.partial_step, 0.5)
         self.assertIsNone(create.call_args.kwargs["threads"])
 
+    def test_address_reset_rejects_inflight_and_queued_work(self):
+        session = Session(options(), SimpleNamespace(name="sherpa", model_name="parakeet-ja"))
+        self.assertFalse(session.address_consistency)
+        session.apply_options({"address_consistency": True})
+        old_epoch = session.address_epoch
+        session.consistent_address("お兄さん。", "哥哥。", "ja", old_epoch, 0)
+        session.received_samples = 16000 * 5
+        session.reset_address_memory()
+        for epoch, start in ((old_epoch, 6), (session.address_epoch, 0)):
+            session.consistent_address("お兄さん。", "小哥。", "ja", epoch, start)
+            self.assertEqual(session.address_memory.entries, {})
+        session.consistent_address("お兄さん。", "小哥。", "ja", session.address_epoch, 6)
+        self.assertEqual(session.address_memory.entries[("ja", "お兄さん")], "小哥")
+        session.apply_options({"address_consistency": False})
+        self.assertEqual(session.address_memory.entries, {})
+
+    def test_translation_worker_keeps_one_model_call_per_sentence(self):
+        from unittest.mock import Mock
+        translator = Mock(name="translator")
+        translator.name = "fake"
+        translator.translate.side_effect = ["哥哥。", "小哥，过来。", "他的小哥。"]
+        args = options(translate_context=0, translate_style="plain")
+        session = Session(args, SimpleNamespace(name="sherpa", model_name="parakeet-ja"), translator)
+        session.apply_options({"address_consistency": True})
+        emitted = []
+        session._emit = emitted.append
+        for index, text in enumerate(("お兄さん。", "お兄さん、こっち。", "彼のお兄さん。")):
+            session.translate_queue.put((index, 1, text, index * 2, index * 2 + 1))
+        session.translate_queue.put(None)
+        session._translate_loop()
+        self.assertEqual(translator.translate.call_count, 3)
+        self.assertEqual([e.translation for e in emitted], ["哥哥。", "哥哥，过来。", "他的小哥。"])
+        self.assertEqual(emitted[1].detail["address_change"]["original"], "小哥，过来。")
+
+    def test_disabled_worker_preserves_translation(self):
+        from unittest.mock import Mock
+        translator = Mock()
+        translator.name = "fake"
+        translator.translate.side_effect = ["哥哥。", "小哥。"]
+        session = Session(options(translate_context=0, translate_style="plain"),
+                          SimpleNamespace(name="sherpa", model_name="parakeet-ja"), translator)
+        emitted = []
+        session._emit = emitted.append
+        for index in range(2):
+            session.translate_queue.put((index, 1, "お兄さん。", index, index + 1))
+        session.translate_queue.put(None)
+        session._translate_loop()
+        self.assertEqual([e.translation for e in emitted], ["哥哥。", "小哥。"])
+        self.assertEqual(session.address_memory.entries, {})
+
 
 if __name__ == "__main__":
     unittest.main()

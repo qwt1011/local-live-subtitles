@@ -48,6 +48,7 @@ import numpy as np
 from .asr.factory import ENGINES, create_engine
 from .events import SubtitleEvent, latency_views, percentile
 from .pipelines.open_utterance import OpenUtterancePipeline
+from .translate.address_memory import AddressMemory
 
 SAMPLE_RATE = 16000
 MAX_EVENT_QUEUE = 64
@@ -136,6 +137,10 @@ class Session:
         self.stats_lock = threading.Lock()
         # 已定稿并已翻译的句子，供后续句子当上文用（原文 + 译文）
         self.history = []
+        self.address_memory = AddressMemory()
+        self.address_consistency = False
+        self.address_epoch = 0
+        self.address_cutoff = 0.0
         self.loop = None
         self.aset_queue = None
         self.dropped = 0
@@ -190,6 +195,9 @@ class Session:
             self.pipeline.early_final, self.pipeline.adaptive_silence = early, adaptive
             self.engine = engine
             self.language = language
+            self.address_memory.clear()
+            self.address_epoch += 1
+            self.address_cutoff = self.audio_seconds
         return language
 
     # --- 会话生命周期 -----------------------------------------------------
@@ -210,8 +218,29 @@ class Session:
                         float(value) if isinstance(value, (int, float))
                         and not isinstance(value, bool) and 0.05 <= value <= 0.35
                         else None)
+                if "address_consistency" in options:
+                    enabled = options["address_consistency"] is True
+                    if enabled != self.address_consistency:
+                        self.address_consistency = enabled
+                        self.address_memory.clear()
+                        self.address_epoch += 1
+                        self.address_cutoff = self.audio_seconds
         return {"early_final": self.pipeline.early_final,
-                "adaptive_silence": self.pipeline.adaptive_silence}
+                "adaptive_silence": self.pipeline.adaptive_silence,
+                "address_consistency": getattr(self, "address_consistency", False)}
+
+    def reset_address_memory(self):
+        with self.lock:
+            self.address_memory.clear()
+            self.address_epoch += 1
+            # Queued sentences from before a reset must not seed the new memory.
+            self.address_cutoff = self.audio_seconds
+
+    def consistent_address(self, text, translated, language, epoch, audio_start):
+        with self.lock:
+            if not self.address_consistency or epoch != self.address_epoch or audio_start < self.address_cutoff:
+                return translated, None
+            return self.address_memory.apply(text, translated, language)
 
     def bind_loop(self, loop):
         """把识别线程和 asyncio 事件循环接起来。
@@ -407,11 +436,14 @@ class Session:
             # 队列是 FIFO 且单线程，所以处理到这一条时，前面几条的译文已经写进 history——
             # 这样上文里的译文才是最新的，用词一致性才有意义。
             context = self.history[-self.args.translate_context:] if self.args.translate_context > 0 else None
+            with self.lock:
+                address_epoch = self.address_epoch
+                language = self.language
 
             try:
                 began = time.perf_counter()
                 translated = self.translator.translate(
-                    text, source=self.language, target="zh",
+                    text, source=language, target="zh",
                     context=context, style=self.args.translate_style)
                 elapsed = time.perf_counter() - began
             except Exception as exc:
@@ -419,6 +451,14 @@ class Session:
                 continue
             if not translated:
                 continue
+
+            address_change = None
+            address_seconds = 0.0
+            if self.address_consistency:
+                began_address = time.perf_counter()
+                translated, address_change = self.consistent_address(
+                    text, translated, language, address_epoch, audio_start)
+                address_seconds = time.perf_counter() - began_address
 
             # 记进 history 供后续句子做上文（原文 + 译文，便于统一用词）
             self.history.append({"original": text, "translation": translated})
@@ -437,7 +477,9 @@ class Session:
                 translation=translated,
                 service_seconds=elapsed,
                 finish_wall=time.perf_counter() - self.started_at,
-                detail={"translation": True, "translate_seconds": round(elapsed, 3)},
+                detail={"translation": True, "translate_seconds": round(elapsed, 3),
+                        **({"address_change": address_change} if address_change else {}),
+                        **({"address_seconds": round(address_seconds, 6)} if address_seconds else {})},
             )
             with self.stats_lock:
                 self.service_seconds += elapsed
@@ -599,6 +641,7 @@ async def handle(websocket, args, engine, translator=None, final_engine=None, po
                     "type": "status", "state": "listening",
                     "engine": session.engine.name, "model": getattr(session.engine, "model_name", args.model),
                     "language": language,
+                    "address_consistency": session.address_consistency,
                     "sample_rate": SAMPLE_RATE,
                 }, ensure_ascii=False))
             elif kind == "ping":
@@ -614,9 +657,13 @@ async def handle(websocket, args, engine, translator=None, final_engine=None, po
                      "en_engine": args.en_engine, "en_model": args.en_model,
                      "idle_exit": args.idle_exit,
                      "capturing_sessions": ACTIVITY.capturing,
+                     "address_consistency_supported": True,
                      "sample_rate": SAMPLE_RATE,
                      **session.summary()},
                     ensure_ascii=False))
+            elif kind == "reset_address_memory":
+                session.reset_address_memory()
+                await websocket.send(json.dumps({"type": "status", "state": "address_memory_reset"}))
             elif kind == "stop":
                 break
     except Exception as exc:  # 客户端断开等

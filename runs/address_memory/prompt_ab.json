@@ -1,0 +1,1062 @@
+{
+  "method": "rotating order, cold prompt cache, 4 translation threads",
+  "seeds": [
+    {
+      "language": "ja",
+      "text": "かわいいお兄さん。",
+      "translation": "可爱的哥哥。",
+      "source": "runs/eval/parakeet_ja_clean2/ja_asmr_0230.jsonl",
+      "learned": {
+        "お兄さん": "哥哥"
+      }
+    },
+    {
+      "language": "en",
+      "text": "Whatever, Dork. Listen.",
+      "translation": "随便吧，笨蛋。听我说。",
+      "source": "runs/eval/en_pk_unified/en_asmr_0100.jsonl",
+      "learned": {
+        "dork": "笨蛋"
+      }
+    },
+    {
+      "language": "en",
+      "text": "Hey, dummy.",
+      "translation": "嘿，笨蛋。",
+      "source": "synthetic",
+      "learned": {
+        "dummy": "笨蛋"
+      }
+    }
+  ],
+  "summary": {
+    "compact": {
+      "paired_overhead_p50": 0.17311365000205114,
+      "paired_overhead_p95": 0.4917444000020623,
+      "term_present": 9,
+      "total": 24,
+      "prompt_leaks": 12
+    },
+    "reference": {
+      "paired_overhead_p50": 1.1446335000000545,
+      "paired_overhead_p95": 1.8191277000005357,
+      "term_present": 6,
+      "total": 24,
+      "prompt_leaks": 18
+    },
+    "baseline": {
+      "term_present": 21,
+      "total": 24
+    }
+  },
+  "rows": [
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "哥哥，过来这边。",
+      "seconds": 0.44256209999730345,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "哥哥，过来这里。\n称呼：哥哥 → 哥哥",
+      "seconds": 0.836133200005861,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "哥哥，过来这里。",
+      "seconds": 0.5718512999883387,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "嘿，哥哥。\n称呼：哥哥 → 哥哥",
+      "seconds": 0.7424128999991808,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "嘿，哥哥。\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\nお兄さん → 哥哥",
+      "seconds": 1.7625753000029363,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "嘿，哥哥。",
+      "seconds": 0.4008750000066357,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "哥哥，你要回家了吗？\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\nお兄さん → 哥哥",
+      "seconds": 1.752893699987908,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "哥哥，你已经要回家了吗？",
+      "seconds": 0.5905293999967398,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "哥哥，你该回家了吗？\n称呼：哥哥 → 哥哥",
+      "seconds": 0.9213274000067031,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "你最好去接Dork",
+      "seconds": 0.43572429999767337,
+      "term_present": false,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "你最好去接Dork吧",
+      "seconds": 0.5254710000008345,
+      "term_present": false,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "你最好去接Dork\n\n称呼一致性参考（仅当原文中确实出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.630282400001306,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "过来吧，笨蛋。",
+      "seconds": 0.4832871999969939,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "过来吧，笨蛋。\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.5760758000105852,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "过来吧，笨蛋。",
+      "seconds": 0.44917310000164434,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "别害羞了，笨蛋。\n\n称呼一致性参考（仅在原文确实出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.63293259999773,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "别害羞了，笨蛋。",
+      "seconds": 0.523869199998444,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "别害羞了，笨蛋。  \n称呼：dork → 笨蛋",
+      "seconds": 0.9521788999991259,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "来吧，笨蛋。",
+      "seconds": 0.45107219999772497,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "来吧，笨蛋。",
+      "seconds": 0.5112689000088722,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "来吧，笨蛋。\n\n称呼一致性参考（仅在原文确实出现该词时遵守）：\ndummy → 笨蛋",
+      "seconds": 1.547685300000012,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 0,
+      "mode": "compact",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.7257592000096338,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 0,
+      "mode": "reference",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.7833067000028677,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 0,
+      "mode": "baseline",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.6269273000070825,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "哥哥，过来这里。\n称呼：哥哥 → 哥哥",
+      "seconds": 0.8063761000084924,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "哥哥，过来这里。",
+      "seconds": 0.5512874999985797,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "哥哥，过来这边。",
+      "seconds": 0.472457800002303,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "嘿，哥哥。\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\nお兄さん → 哥哥",
+      "seconds": 1.5123182999959681,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "嘿，哥哥。",
+      "seconds": 0.3904222999990452,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "嘿，哥哥。\n称呼：哥哥 → 哥哥",
+      "seconds": 0.7605879999900935,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "哥哥，你已经要回家了吗？",
+      "seconds": 0.6127281000080984,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "哥哥，你该回家了吗？\n称呼：哥哥 → 哥哥",
+      "seconds": 0.9141540999989957,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "哥哥，你要回家了吗？\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\nお兄さん → 哥哥",
+      "seconds": 1.7216207000019494,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "你最好去接Dork吧",
+      "seconds": 0.5821533999987878,
+      "term_present": false,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "你最好去接Dork\n\n称呼一致性参考（仅当原文中确实出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.6516490000067279,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "你最好去接Dork",
+      "seconds": 0.472034899998107,
+      "term_present": false,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "过来吧，笨蛋。\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.680735600006301,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "过来吧，笨蛋。",
+      "seconds": 0.45615270000416785,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "过来吧，笨蛋。",
+      "seconds": 0.506151100009447,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "别害羞了，笨蛋。",
+      "seconds": 0.5456667999969795,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "别害羞了，笨蛋。  \n称呼：dork → 笨蛋",
+      "seconds": 0.9885196999966865,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "别害羞了，笨蛋。\n\n称呼一致性参考（仅在原文确实出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.7470542000082787,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "来吧，笨蛋。",
+      "seconds": 0.5701031000062358,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "来吧，笨蛋。\n\n称呼一致性参考（仅在原文确实出现该词时遵守）：\ndummy → 笨蛋",
+      "seconds": 2.5771288000105415,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "来吧，笨蛋。",
+      "seconds": 0.5433408999961102,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 1,
+      "mode": "reference",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.971843399995123,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 1,
+      "mode": "baseline",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.7897186000045622,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 1,
+      "mode": "compact",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.8905047000007471,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "哥哥，过来这里。",
+      "seconds": 0.6875009999930626,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "哥哥，过来这边。",
+      "seconds": 0.5535896999936085,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、こっちに来て。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "哥哥，过来这里。\n称呼：哥哥 → 哥哥",
+      "seconds": 1.0453340999956708,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "嘿，哥哥。",
+      "seconds": 0.4806620000017574,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "嘿，哥哥。\n称呼：哥哥 → 哥哥",
+      "seconds": 1.262165799998911,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "ねえ、お兄さん。",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "嘿，哥哥。\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\nお兄さん → 哥哥",
+      "seconds": 1.7089415000082226,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "哥哥，你该回家了吗？\n称呼：哥哥 → 哥哥",
+      "seconds": 0.9572641999984626,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "哥哥，你要回家了吗？\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\nお兄さん → 哥哥",
+      "seconds": 1.8012506999948528,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "ja",
+      "text": "お兄さん、もう帰っちゃうの？",
+      "source": "synthetic",
+      "glossary": {
+        "お兄さん": "哥哥"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "哥哥，你已经要回家了吗？",
+      "seconds": 0.7211553999950411,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "你最好去接Dork\n\n称呼一致性参考（仅当原文中确实出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.816049600005499,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "你最好去接Dork",
+      "seconds": 0.5198485000000801,
+      "term_present": false,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "You better pick up Dork",
+      "source": "runs/eval/en_pk_unified/en_asmr_2600.jsonl",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "你最好去接Dork吧",
+      "seconds": 0.6111835000046995,
+      "term_present": false,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "过来吧，笨蛋。",
+      "seconds": 0.48370759999670554,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "过来吧，笨蛋。",
+      "seconds": 0.525169200001983,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come here, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "过来吧，笨蛋。\n\n称呼一致性参考（仅当原文中实际出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.7614978000055999,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "别害羞了，笨蛋。  \n称呼：dork → 笨蛋",
+      "seconds": 1.0478043999901274,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "别害羞了，笨蛋。\n\n称呼一致性参考（仅在原文确实出现该词时遵守）：\ndork → 笨蛋",
+      "seconds": 1.8844919999974081,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Don't be shy, dork.",
+      "source": "synthetic",
+      "glossary": {
+        "dork": "笨蛋"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "别害羞了，笨蛋。",
+      "seconds": 0.6907139000104507,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "来吧，笨蛋。\n\n称呼一致性参考（仅在原文确实出现该词时遵守）：\ndummy → 笨蛋",
+      "seconds": 2.390342500002589,
+      "term_present": false,
+      "prompt_leak": true
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "来吧，笨蛋。",
+      "seconds": 0.5712148000020534,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Come on, dummy.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "来吧，笨蛋。",
+      "seconds": 0.5896248999924865,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 2,
+      "mode": "baseline",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.8050798999902327,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 2,
+      "mode": "compact",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 0.7996109000087017,
+      "term_present": true,
+      "prompt_leak": false
+    },
+    {
+      "language": "en",
+      "text": "Listen, dummy. I need your help.",
+      "source": "synthetic",
+      "glossary": {
+        "dummy": "笨蛋"
+      },
+      "round": 2,
+      "mode": "reference",
+      "output": "听着，笨蛋。我需要你的帮助。",
+      "seconds": 1.0129455999995116,
+      "term_present": true,
+      "prompt_leak": false
+    }
+  ]
+}
